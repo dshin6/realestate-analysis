@@ -84,10 +84,25 @@ class DashboardRenderTest(unittest.TestCase):
                         }
                     )
         premium_trades = enrich_trades(pd.DataFrame(premium_rows), TARGET_COMPLEX)
-        premium_figure = _adjusted_premium_figure(premium_trades)
-        self.assertTrue(all(trace.type == "bar" for trace in premium_figure.data))
-        self.assertEqual(sum(len(trace.x) for trace in premium_figure.data), 5)
-        self.assertTrue(all(value >= 0 for trace in premium_figure.data for value in trace.error_x.array))
+        type_premium_figure = _adjusted_premium_figure(premium_trades, "타입")
+        self.assertTrue(all(trace.type == "bar" for trace in type_premium_figure.data))
+        self.assertEqual(sum(len(trace.x) for trace in type_premium_figure.data), 2)
+        self.assertFalse(type_premium_figure.layout.showlegend)
+        self.assertTrue(
+            all("B타입보다" in text for trace in type_premium_figure.data for text in trace.text)
+        )
+        self.assertTrue(
+            all("건" not in text for trace in type_premium_figure.data for text in trace.text)
+        )
+        self.assertTrue(
+            all(not trace.error_x.visible for trace in type_premium_figure.data)
+        )
+
+        floor_premium_figure = _adjusted_premium_figure(premium_trades, "층 구간")
+        self.assertEqual(sum(len(trace.x) for trace in floor_premium_figure.data), 1)
+        self.assertTrue(
+            all("고층보다" in text for trace in floor_premium_figure.data for text in trace.text)
+        )
 
     def test_prepare_trades_replaces_stale_floor_groups(self):
         from app import _prepare_trades

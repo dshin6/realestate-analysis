@@ -224,57 +224,73 @@ def _floor_price_index_figure(frame: pd.DataFrame) -> go.Figure:
     return figure
 
 
-def _adjusted_premium_figure(frame: pd.DataFrame) -> go.Figure:
-    summary = adjusted_premium_summary(frame)
+def _adjusted_premium_figure(
+    frame: pd.DataFrame,
+    factor: str,
+    *,
+    summary: pd.DataFrame | None = None,
+) -> go.Figure:
+    if factor not in {"타입", "층 구간"}:
+        raise ValueError(f"지원하지 않는 비교 기준입니다: {factor}")
+    if summary is None:
+        summary = adjusted_premium_summary(frame)
+
+    subset = summary[
+        (summary["factor"] == factor) & (~summary["is_reference"])
+    ].copy()
     figure = go.Figure()
-    for factor in ["타입", "층 구간"]:
-        subset = summary[summary["factor"] == factor]
-        if subset.empty:
-            continue
-        labels = [
-            f"{factor} {category}" + (" · 기준" if is_reference else "")
-            for category, is_reference in zip(subset["category"], subset["is_reference"])
-        ]
-        colors = (
-            [TYPE_COLORS.get(str(category), "#8D8D8D") for category in subset["category"]]
-            if factor == "타입"
-            else ["#2F6B4F"] * len(subset)
+    if subset.empty:
+        return figure
+
+    reference = str(subset.iloc[0]["reference"])
+    reference_label = "B타입" if factor == "타입" and reference == "B" else (
+        "고층" if factor == "층 구간" and reference == "고층 (16층 이상)" else reference
+    )
+    category_labels = (
+        [f"{category}타입" for category in subset["category"]]
+        if factor == "타입"
+        else subset["category"].astype(str).tolist()
+    )
+    premium = subset["premium_pct"].to_numpy()
+    descriptions = [
+        f"{reference_label}보다 {abs(value):.1f}% {'높음' if value > 0 else '낮음'}"
+        if value != 0
+        else f"{reference_label}과 같음"
+        for value in premium
+    ]
+    colors = (
+        [TYPE_COLORS.get(str(category), "#8D8D8D") for category in subset["category"]]
+        if factor == "타입"
+        else ["#2F6B4F"] * len(subset)
+    )
+    figure.add_trace(
+        go.Bar(
+            x=premium,
+            y=category_labels,
+            orientation="h",
+            marker={"color": colors, "opacity": 0.92},
+            text=descriptions,
+            textposition="outside",
+            cliponaxis=False,
+            customdata=subset[
+                ["ci_low_pct", "ci_high_pct", "trades", "months"]
+            ].to_numpy(),
+            hovertemplate=(
+                "%{y}<br>"
+                f"{reference_label} 대비: %{{x:+.2f}}%<br>"
+                "95% 범위: %{customdata[0]:+.2f}% ~ %{customdata[1]:+.2f}%<br>"
+                "거래 건수: %{customdata[2]:,}건<br>"
+                "분석 월 수: %{customdata[3]:,}개월<extra></extra>"
+            ),
         )
-        premium = subset["premium_pct"].to_numpy()
-        figure.add_trace(
-            go.Bar(
-                x=premium,
-                y=labels,
-                orientation="h",
-                name=factor,
-                marker={"color": colors, "opacity": 0.88},
-                text=[f"{value:+.1f}% · {int(trades):,}건" for value, trades in zip(premium, subset["trades"])],
-                textposition="outside",
-                cliponaxis=False,
-                customdata=subset[["ci_low_pct", "ci_high_pct", "trades", "reference", "months"]].to_numpy(),
-                error_x={
-                    "type": "data",
-                    "array": (subset["ci_high_pct"] - subset["premium_pct"]).clip(lower=0),
-                    "arrayminus": (subset["premium_pct"] - subset["ci_low_pct"]).clip(lower=0),
-                    "visible": True,
-                    "color": "#4D5562",
-                },
-                hovertemplate=(
-                    "보정 프리미엄: %{x:+.2f}%<br>"
-                    "95% 신뢰구간: %{customdata[0]:+.2f}% ~ %{customdata[1]:+.2f}%<br>"
-                    "거래 건수: %{customdata[2]:,}건<br>"
-                    "기준: %{customdata[3]}<br>"
-                    "분석 월 수: %{customdata[4]:,}개월<extra></extra>"
-                ),
-            )
-        )
+    )
     figure.add_vline(x=0, line_dash="dash", line_color="#4D5562")
     figure.update_layout(
-        barmode="group",
-        xaxis={"title": "시점 보정 프리미엄(%)"},
+        height=260 if factor == "타입" else 320,
+        showlegend=False,
+        xaxis={"title": "기준 대비 가격 차이(%)", "zeroline": False},
         yaxis={"title": "", "autorange": "reversed"},
-        legend_title_text="요인",
-        margin={"t": 30, "l": 20, "r": 80},
+        margin={"t": 20, "l": 20, "r": 180, "b": 55},
     )
     return figure
 
@@ -402,15 +418,32 @@ def main() -> None:
             "위 평균 막대와 동일한 가격 기준이며, 고층 거래가 없는 타입은 계산에서 제외됩니다."
         )
 
-    st.subheader("시점 보정 타입·층 프리미엄")
+    st.subheader("시장 변동을 제외한 타입·층 가격 차이")
     adjusted_premium = adjusted_premium_summary(filtered)
     if adjusted_premium.empty:
-        st.info("선택한 기간의 표본이 부족하거나 타입·층 구간이 겹쳐 보정 프리미엄을 계산할 수 없습니다.")
+        st.info("선택한 기간의 표본이 부족해 타입·층 가격 차이를 계산할 수 없습니다.")
     else:
-        st.plotly_chart(_adjusted_premium_figure(filtered), width="stretch")
+        st.markdown("#### 타입별 가격 차이 · B타입 기준")
+        st.plotly_chart(
+            _adjusted_premium_figure(
+                filtered,
+                "타입",
+                summary=adjusted_premium,
+            ),
+            width="stretch",
+        )
+        st.markdown("#### 층별 가격 차이 · 고층 기준")
+        st.plotly_chart(
+            _adjusted_premium_figure(
+                filtered,
+                "층 구간",
+                summary=adjusted_premium,
+            ),
+            width="stretch",
+        )
         st.caption(
-            "월별 시장가격 변동을 통제한 로그가격 회귀 결과입니다. B타입과 고층을 우선 기준 0%로 사용하며, "
-            "가로선은 95% 신뢰구간입니다. 신뢰구간이 0%를 지나면 가격 차이가 명확하지 않을 수 있습니다."
+            "같은 거래월의 시장가격 변동과 타입·층 차이를 함께 반영한 비교입니다. "
+            "정확한 95% 범위와 거래 수는 막대에 마우스를 올리면 확인할 수 있습니다."
         )
 
     st.subheader("동·타입별 가격 비교")
