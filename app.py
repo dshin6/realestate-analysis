@@ -20,6 +20,7 @@ from realestate_analysis.config import TARGET_COMPLEX
 
 
 CACHE_PATH = Path("data/cache/trades.json")
+SEED_PATH = Path("data/seed/trades.json")
 TYPE_COLORS = {"A": "#2F6B4F", "B": "#D08C45", "C": "#4E79A7", "기타": "#8D8D8D"}
 
 
@@ -45,6 +46,7 @@ def _load_data(service_key: str, force_refresh: bool) -> tuple[pd.DataFrame, str
         config=TARGET_COMPLEX,
         end_ym=current_deal_month(),
         cache_path=CACHE_PATH,
+        seed_path=SEED_PATH,
         force_refresh=force_refresh,
         progress=update_progress,
     )
@@ -69,7 +71,7 @@ def main() -> None:
     st.caption("A/B/C 평면 타입과 동·층에 따른 실제 거래가격 차이를 확인합니다.")
 
     service_key = _service_key()
-    if not service_key and not CACHE_PATH.exists():
+    if not service_key and not CACHE_PATH.exists() and not SEED_PATH.exists():
         _render_setup()
         st.stop()
 

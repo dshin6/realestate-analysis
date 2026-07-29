@@ -31,6 +31,13 @@ def iter_months(start_ym: str, end_ym: str) -> Iterable[str]:
             month = 1
 
 
+def shift_month(deal_ym: str, months: int) -> str:
+    year, month = int(deal_ym[:4]), int(deal_ym[4:])
+    index = year * 12 + month - 1 + months
+    shifted_year, shifted_month_index = divmod(index, 12)
+    return f"{shifted_year:04d}{shifted_month_index + 1:02d}"
+
+
 def _text(item: ET.Element, *names: str) -> str:
     for name in names:
         node = item.find(name)
@@ -153,15 +160,32 @@ def load_trades(
     config: ComplexConfig,
     end_ym: str,
     cache_path: Path = Path("data/cache/trades.json"),
+    seed_path: Path | None = None,
     force_refresh: bool = False,
     progress: Callable[[int, int], None] | None = None,
 ) -> tuple[pd.DataFrame, str]:
-    if cache_path.exists() and not force_refresh:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-        if payload.get("end_ym") == end_ym:
-            return pd.DataFrame(payload.get("rows", [])), payload.get("fetched_at", "")
+    payload: dict = {}
+    for source_path in (cache_path, seed_path):
+        if source_path is None or not source_path.exists():
+            continue
+        candidate = json.loads(source_path.read_text(encoding="utf-8"))
+        if candidate.get("end_ym", "") >= payload.get("end_ym", ""):
+            payload = candidate
 
-    months = list(iter_months(config.start_ym, end_ym))
+    cached_rows = payload.get("rows", [])
+    cached_end_ym = payload.get("end_ym", "")
+    if cached_rows and not force_refresh and cached_end_ym >= end_ym:
+        return pd.DataFrame(cached_rows), payload.get("fetched_at", "")
+    if cached_rows and not service_key:
+        return pd.DataFrame(cached_rows), payload.get("fetched_at", "")
+
+    if cached_rows:
+        start_ym = shift_month(end_ym, -2) if force_refresh else shift_month(cached_end_ym, 1)
+        start_ym = max(config.start_ym, start_ym)
+    else:
+        start_ym = config.start_ym
+
+    months = list(iter_months(start_ym, end_ym))
     all_rows: list[dict] = []
     total_calls = len(months) * len(config.lawd_codes)
     completed = 0
@@ -173,7 +197,27 @@ def load_trades(
                 if progress:
                     progress(completed, total_calls)
 
-    frame = _filter_target(all_rows, config)
+    fresh_frame = _filter_target(all_rows, config)
+    if cached_rows:
+        existing_frame = pd.DataFrame(cached_rows)
+        cutoff = pd.Timestamp(f"{start_ym[:4]}-{start_ym[4:]}-01")
+        existing_dates = pd.to_datetime(existing_frame["deal_date"])
+        existing_frame = existing_frame[existing_dates < cutoff]
+        frame = pd.concat([existing_frame, fresh_frame], ignore_index=True)
+        frame = frame.drop_duplicates(
+            subset=[
+                "deal_date",
+                "price_won",
+                "exclusive_area",
+                "floor",
+                "apartment_name",
+                "building",
+                "jibun",
+            ]
+        ).sort_values("deal_date")
+    else:
+        frame = fresh_frame
+
     fetched_at = datetime.now().astimezone().isoformat(timespec="seconds")
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(

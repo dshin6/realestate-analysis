@@ -35,11 +35,13 @@
 - 실제 API로 2007-07-24부터 2026-07-04까지 정상 거래 615건을 수집했다.
 - 실데이터의 A/B/C 분류 결과는 각각 315/190/110건이며 면적 미분류 거래는 없었다.
 - 실데이터로 핵심 지표 4개, Plotly 차트 5개와 거래표 1개의 렌더링을 확인했다.
+- 공개 GitHub 저장소와 Streamlit Community Cloud 배포를 완료했다.
+- 공개 실거래 615건을 빠른 첫 화면용 초기 데이터로 분리했다.
+- 신규 월만 증분 수집하고 수동 새로고침은 최근 3개월만 재조회하도록 개선했다.
 
 ## In Progress
 
-- 공개 GitHub 저장소 생성 및 소스 게시
-- Streamlit Community Cloud에 저장소 연결, Secrets 등록 및 공개 URL 검증
+- 배포된 대시보드의 실제 사용성 확인
 
 ## Verification Evidence
 
@@ -49,6 +51,7 @@
 - 실제 캐시 615건의 전체 화면 렌더링에서 예외 0건을 확인했다.
 - Community Cloud 배포 문서 갱신 후 단위·렌더링 테스트 7개를 다시 통과했다.
 - 공개 대상 파일 검사에서 `.streamlit/secrets.toml`, `data/cache/`, `.venv/`, `.vendor/`, `.tools/`가 제외됨을 확인했다.
+- 초기 데이터·증분 수집·화면 렌더링을 포함한 테스트 10개를 통과했다.
 
 ## Known Limitations
 
@@ -58,4 +61,4 @@
 
 ## Next Step
 
-GitHub 인증을 연결한 뒤 공개 저장소를 만들고 Streamlit Community Cloud에 배포한다.
+배포된 대시보드에서 초기 화면이 즉시 열리고 수동 새로고침이 최근 3개월만 조회하는지 확인한다.

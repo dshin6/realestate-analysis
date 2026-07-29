@@ -1,7 +1,7 @@
 # Implementation Plan
 
 마지막 갱신: 2026-07-29
-상태: GitHub 및 Streamlit Community Cloud 배포 준비 중
+상태: 첫 대시보드 공개 배포 및 초기 로딩 개선 완료
 
 ## Goal
 
@@ -47,13 +47,16 @@ Standard로 진행한다. 작은 결과를 빠르게 확인하되 인증키는 �
 
 ### Task 4: GitHub 및 Streamlit Community Cloud 배포
 
-상태: 진행 중
+상태: 공개 배포 및 초기 로딩 개선 완료
 
 - 공개 GitHub 저장소 `realestate-analysis`에 소스와 문서를 게시한다.
 - `.streamlit/secrets.toml`, 로컬 캐시, 가상환경과 실행 도구를 저장소에서 제외한다.
 - Community Cloud에서 기본 브랜치의 `app.py`를 Python 3.12로 실행한다.
 - `DATA_GO_KR_SERVICE_KEY`는 Community Cloud Secrets에만 등록한다.
 - 기본 브랜치 push 시 자동 재배포되는 구성을 사용하고 Docker는 추가하지 않는다.
+- 검증된 전체 기간 거래를 `data/seed/trades.json`에 초기 데이터로 포함한다.
+- 실행 중 갱신 결과는 `data/cache/trades.json`에 저장하고 Git에서 제외한다.
+- 평상시에는 초기 데이터 이후의 누락 월만 조회하고, 수동 새로고침은 최근 3개월만 다시 조회한다.
 
 ## Verification
 

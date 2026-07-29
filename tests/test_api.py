@@ -1,6 +1,11 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from realestate_analysis.api import PublicDataApiError, iter_months, parse_trade_xml
+from realestate_analysis.api import PublicDataApiError, iter_months, load_trades, parse_trade_xml
+from realestate_analysis.config import TARGET_COMPLEX
 
 
 SUCCESS_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -30,7 +35,79 @@ class ApiParsingTest(unittest.TestCase):
         with self.assertRaises(PublicDataApiError):
             parse_trade_xml(xml)
 
+    def test_load_trades_uses_current_seed_without_api_calls(self):
+        rows = [
+            {
+                "deal_date": "2026-07-03",
+                "price_won": 650_000_000,
+                "exclusive_area": 84.8,
+                "floor": 12,
+                "apartment_name": TARGET_COMPLEX.name,
+                "building": "231동",
+                "legal_dong": "반송동",
+                "jibun": "21",
+                "cancelled": False,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            seed_path = root / "data" / "seed" / "trades.json"
+            seed_path.parent.mkdir(parents=True)
+            seed_path.write_text(
+                json.dumps({"fetched_at": "seed", "end_ym": "202607", "rows": rows}),
+                encoding="utf-8",
+            )
+            with patch("realestate_analysis.api.fetch_month") as fetch_month:
+                frame, fetched_at = load_trades(
+                    service_key="key",
+                    config=TARGET_COMPLEX,
+                    end_ym="202607",
+                    cache_path=root / "data" / "cache" / "trades.json",
+                    seed_path=seed_path,
+                )
+
+        fetch_month.assert_not_called()
+        self.assertEqual(len(frame), 1)
+        self.assertEqual(fetched_at, "seed")
+
+    def test_load_trades_fetches_only_months_after_seed(self):
+        old_row = {
+            "deal_date": "2026-06-10",
+            "price_won": 600_000_000,
+            "exclusive_area": 84.8,
+            "floor": 10,
+            "apartment_name": TARGET_COMPLEX.name,
+            "building": "231동",
+            "legal_dong": "반송동",
+            "jibun": "21",
+            "cancelled": False,
+        }
+        new_row = {
+            **old_row,
+            "deal_date": "2026-07-10",
+            "price_won": 660_000_000,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            seed_path = root / "data" / "seed" / "trades.json"
+            seed_path.parent.mkdir(parents=True)
+            seed_path.write_text(
+                json.dumps({"fetched_at": "seed", "end_ym": "202606", "rows": [old_row]}),
+                encoding="utf-8",
+            )
+            with patch("realestate_analysis.api.fetch_month", return_value=[new_row]) as fetch_month:
+                frame, _ = load_trades(
+                    service_key="key",
+                    config=TARGET_COMPLEX,
+                    end_ym="202607",
+                    cache_path=root / "data" / "cache" / "trades.json",
+                    seed_path=seed_path,
+                )
+
+        self.assertEqual(fetch_month.call_count, 1)
+        self.assertEqual(fetch_month.call_args.args[2], "202607")
+        self.assertEqual(len(frame), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
-
