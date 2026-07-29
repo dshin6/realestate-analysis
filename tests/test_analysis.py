@@ -9,6 +9,7 @@ from realestate_analysis.analysis import (
     enrich_trades,
     estimate_fair_price,
     floor_average_summary,
+    floor_price_index_by_type,
     map_plan_type,
 )
 from realestate_analysis.config import TARGET_COMPLEX
@@ -67,6 +68,32 @@ class AnalysisTest(unittest.TestCase):
         low = floors[floors["floor_group"] == "저층 (2층~5층)"].iloc[0]
         self.assertEqual(low["trades"], 2)
         self.assertEqual(low["average_price"], 650_000_000)
+
+    def test_floor_price_index_uses_same_type_high_floor_as_100(self):
+        raw = pd.DataFrame(
+            [
+                {"deal_date": "2024-01-10", "price_won": 200_000_000, "exclusive_area": 84.80, "floor": 1, "building": "231동"},
+                {"deal_date": "2024-02-10", "price_won": 400_000_000, "exclusive_area": 84.80, "floor": 18, "building": "231동"},
+                {"deal_date": "2025-01-10", "price_won": 400_000_000, "exclusive_area": 84.80, "floor": 1, "building": "231동"},
+                {"deal_date": "2025-02-10", "price_won": 400_000_000, "exclusive_area": 84.80, "floor": 1, "building": "231동"},
+                {"deal_date": "2025-03-10", "price_won": 800_000_000, "exclusive_area": 84.80, "floor": 18, "building": "231동"},
+                {"deal_date": "2025-04-10", "price_won": 600_000_000, "exclusive_area": 84.73, "floor": 10, "building": "231동"},
+            ]
+        )
+        enriched = enrich_trades(raw, TARGET_COMPLEX)
+
+        result = floor_price_index_by_type(enriched)
+
+        a_first = result[
+            (result["plan_type"] == "A") & (result["floor_group"] == "1층")
+        ].iloc[0]
+        a_high = result[
+            (result["plan_type"] == "A") & (result["floor_group"] == "고층 (16층 이상)")
+        ].iloc[0]
+        self.assertEqual(a_first["price_index_pct"], 50.0)
+        self.assertEqual(a_first["trades"], 3)
+        self.assertEqual(a_high["price_index_pct"], 100.0)
+        self.assertFalse((result["plan_type"] == "B").any())
 
 
 if __name__ == "__main__":

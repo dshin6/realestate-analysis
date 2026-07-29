@@ -13,6 +13,7 @@ class DashboardRenderTest(unittest.TestCase):
         from app import (
             _annual_type_volume_figure,
             _floor_distribution_figure,
+            _floor_price_index_figure,
             _trade_scatter_figure,
         )
         from realestate_analysis.analysis import enrich_trades
@@ -23,6 +24,7 @@ class DashboardRenderTest(unittest.TestCase):
                 {"deal_date": "2025-01-10", "price_won": 600_000_000, "exclusive_area": 84.80, "floor": 3, "building": "231동"},
                 {"deal_date": "2025-02-10", "price_won": 700_000_000, "exclusive_area": 84.80, "floor": 5, "building": "231동"},
                 {"deal_date": "2025-03-10", "price_won": 550_000_000, "exclusive_area": 84.73, "floor": 10, "building": "231동"},
+                {"deal_date": "2025-04-10", "price_won": 800_000_000, "exclusive_area": 84.80, "floor": 18, "building": "231동"},
             ]
         )
         trades = enrich_trades(raw, TARGET_COMPLEX)
@@ -37,8 +39,12 @@ class DashboardRenderTest(unittest.TestCase):
         floor_figure = _floor_distribution_figure(trades)
         bar_points = sum(len(trace.x) for trace in floor_figure.data if trace.type == "bar")
         scatter_points = sum(len(trace.x) for trace in floor_figure.data if trace.type == "scatter")
-        self.assertEqual(bar_points, 2)
+        self.assertEqual(bar_points, 3)
         self.assertEqual(scatter_points, len(trades))
+
+        index_figure = _floor_price_index_figure(trades)
+        self.assertTrue(all(trace.type == "bar" for trace in index_figure.data))
+        self.assertEqual(sum(len(trace.x) for trace in index_figure.data), 2)
 
     def test_prepare_trades_replaces_stale_floor_groups(self):
         from app import _prepare_trades
@@ -84,7 +90,7 @@ class DashboardRenderTest(unittest.TestCase):
                 os.chdir(previous)
 
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(len(app.get("plotly_chart")), 4)
+        self.assertEqual(len(app.get("plotly_chart")), 5)
         self.assertEqual(len(app.dataframe), 1)
 
     def test_seed_data_renders_without_runtime_cache(self):
@@ -112,7 +118,7 @@ class DashboardRenderTest(unittest.TestCase):
                 os.chdir(previous)
 
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(len(app.get("plotly_chart")), 4)
+        self.assertEqual(len(app.get("plotly_chart")), 5)
         self.assertFalse(cache_created)
 
 

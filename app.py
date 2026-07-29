@@ -13,6 +13,7 @@ from realestate_analysis.analysis import (
     enrich_trades,
     estimate_fair_price,
     floor_average_summary,
+    floor_price_index_by_type,
     won_to_eok,
 )
 from realestate_analysis.api import PublicDataApiError, current_deal_month, load_trades
@@ -154,6 +155,44 @@ def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
     return figure
 
 
+def _floor_price_index_figure(frame: pd.DataFrame) -> go.Figure:
+    chart_data = floor_price_index_by_type(frame).copy()
+    chart_data["고층 대비 가격(%)"] = chart_data["price_index_pct"]
+    chart_data["평균가격(억원)"] = chart_data["average_price"] / 100_000_000
+    chart_data["타입"] = chart_data["plan_type"]
+    figure = px.bar(
+        chart_data,
+        x="floor_group",
+        y="고층 대비 가격(%)",
+        color="타입",
+        barmode="group",
+        color_discrete_map=TYPE_COLORS,
+        text_auto=".1f",
+        labels={"floor_group": "층 구간"},
+        hover_data={
+            "평균가격(억원)": ":.2f",
+            "trades": True,
+            "price_index_pct": False,
+            "average_price": False,
+            "plan_type": False,
+        },
+    )
+    figure.add_hline(
+        y=100,
+        line_dash="dash",
+        line_color="#4D5562",
+        annotation_text="고층 기준 100%",
+        annotation_position="top left",
+    )
+    figure.update_traces(texttemplate="%{y:.1f}%", textposition="outside", cliponaxis=False)
+    figure.update_layout(
+        legend_title_text="타입",
+        yaxis={"title": "고층 대비 가격(%)", "rangemode": "tozero"},
+        margin={"t": 55},
+    )
+    return figure
+
+
 def _load_data(service_key: str, force_refresh: bool) -> tuple[pd.DataFrame, str]:
     progress_bar = st.progress(0, text="국토교통부 실거래를 가져오는 중입니다.")
 
@@ -255,6 +294,17 @@ def main() -> None:
     st.subheader("층 구간별 평균과 실거래 분포")
     st.plotly_chart(_floor_distribution_figure(filtered), width="stretch")
     st.caption("반투명 막대는 구간 평균, 점은 개별 실거래입니다. 거래 수와 점의 분포를 함께 확인하세요.")
+
+    st.subheader("고층 대비 층 구간 가격")
+    floor_index = floor_price_index_by_type(filtered)
+    if floor_index.empty:
+        st.info("선택한 조건에 고층(16층 이상) 거래가 없어 가격 비율을 계산할 수 없습니다.")
+    else:
+        st.plotly_chart(_floor_price_index_figure(filtered), width="stretch")
+        st.caption(
+            "각 거래를 같은 연도·같은 타입의 고층(16층 이상) 평균가격과 비교한 뒤 층 구간별로 평균했습니다. "
+            "고층 거래가 없는 연도·타입은 계산에서 제외되므로 거래 건수도 함께 확인하세요."
+        )
 
     st.subheader("동·타입별 가격 비교")
     building_data = building_summary(filtered)
