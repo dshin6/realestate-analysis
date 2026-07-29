@@ -185,10 +185,18 @@ def main() -> None:
             floor_data,
             x="floor_group",
             y="중앙값(억원)",
-            color="trades",
-            color_continuous_scale="Greens",
-            labels={"floor_group": "층 구간", "trades": "거래 수"},
+            text="trades",
+            labels={"floor_group": "층 구간"},
         )
+        fig_floor.update_traces(
+            marker_color="#2F6B4F",
+            marker_line_color="#1F2A24",
+            marker_line_width=1,
+            texttemplate="%{text:,}건",
+            textposition="outside",
+            cliponaxis=False,
+        )
+        fig_floor.update_layout(showlegend=False, margin={"t": 30})
         st.plotly_chart(fig_floor, width="stretch")
 
     st.subheader("동·타입별 가격 비교")
