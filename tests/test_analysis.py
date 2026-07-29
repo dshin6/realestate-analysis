@@ -77,7 +77,7 @@ class AnalysisTest(unittest.TestCase):
         ].iloc[0]
         self.assertEqual(middle_b["average_price"], 550_000_000)
 
-    def test_floor_price_index_uses_same_type_high_floor_as_100(self):
+    def test_floor_price_index_matches_displayed_period_averages(self):
         raw = pd.DataFrame(
             [
                 {"deal_date": "2024-01-10", "price_won": 200_000_000, "exclusive_area": 84.80, "floor": 1, "building": "231동"},
@@ -98,7 +98,10 @@ class AnalysisTest(unittest.TestCase):
         a_high = result[
             (result["plan_type"] == "A") & (result["floor_group"] == "고층 (16층 이상)")
         ].iloc[0]
-        self.assertEqual(a_first["price_index_pct"], 50.0)
+        expected_pct = ((200_000_000 + 400_000_000 + 400_000_000) / 3) / (
+            (400_000_000 + 800_000_000) / 2
+        ) * 100
+        self.assertAlmostEqual(a_first["price_index_pct"], expected_pct)
         self.assertEqual(a_first["trades"], 3)
         self.assertEqual(a_high["price_index_pct"], 100.0)
         self.assertFalse((result["plan_type"] == "B").any())

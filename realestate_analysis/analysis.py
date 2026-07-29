@@ -139,25 +139,15 @@ def floor_price_index_by_type(frame: pd.DataFrame) -> pd.DataFrame:
         "중층 (6층~15층)",
         "고층 (16층 이상)",
     ]
-    work = frame[frame["floor_group"].isin(order)].copy()
+    summary = floor_average_summary(frame)
+    summary = summary[summary["floor_group"].isin(order)].copy()
     high_floor = (
-        work[work["floor_group"] == "고층 (16층 이상)"]
-        .groupby(["year", "plan_type"])["price_won"]
-        .mean()
+        summary[summary["floor_group"] == "고층 (16층 이상)"]
+        .set_index("plan_type")["average_price"]
         .rename("high_floor_average")
     )
-    work = work.join(high_floor, on=["year", "plan_type"]).dropna(subset=["high_floor_average"])
-    work["price_index_pct"] = work["price_won"] / work["high_floor_average"] * 100
-    result = (
-        work
-        .groupby(["plan_type", "floor_group"], as_index=False, observed=True)
-        .agg(
-            average_price=("price_won", "mean"),
-            trades=("price_won", "size"),
-            price_index_pct=("price_index_pct", "mean"),
-        )
-    )
-    result["floor_group"] = pd.Categorical(result["floor_group"], order, ordered=True)
+    result = summary.join(high_floor, on="plan_type").dropna(subset=["high_floor_average"])
+    result["price_index_pct"] = result["average_price"] / result["high_floor_average"] * 100
     return result[columns].sort_values(["floor_group", "plan_type"])
 
 
