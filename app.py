@@ -218,7 +218,10 @@ def main() -> None:
     with st.expander("검토 중인 매물 가격 비교", expanded=True):
         form_left, form_mid, form_right = st.columns(3)
         plan_type = form_left.selectbox("매물 타입", ["A", "B", "C"])
-        floor_group = form_mid.selectbox("매물 층 구간", ["1층", "저층", "중층", "고층", "최상층"])
+        floor_group = form_mid.selectbox(
+            "매물 층 구간",
+            ["1층", "저층 (2층~5층)", "중층 (6층~15층)", "고층 (16층 이상)"],
+        )
         asking_eok = form_right.number_input("매물 가격(억원, 선택)", min_value=0.0, step=0.1, value=0.0)
         estimate = estimate_fair_price(
             trades,

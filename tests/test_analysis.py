@@ -19,12 +19,14 @@ class AnalysisTest(unittest.TestCase):
         self.assertEqual(map_plan_type(84.79, TARGET_COMPLEX), "C")
         self.assertEqual(map_plan_type(59.9, TARGET_COMPLEX), "기타")
 
-    def test_floor_groups_use_building_max_floor(self):
-        self.assertEqual(classify_floor(1, "235", TARGET_COMPLEX), "1층")
-        self.assertEqual(classify_floor(3, "235", TARGET_COMPLEX), "저층")
-        self.assertEqual(classify_floor(15, "235", TARGET_COMPLEX), "중층")
-        self.assertEqual(classify_floor(27, "235", TARGET_COMPLEX), "고층")
-        self.assertEqual(classify_floor(30, "235", TARGET_COMPLEX), "최상층")
+    def test_floor_groups_use_common_fixed_ranges(self):
+        self.assertEqual(classify_floor(1), "1층")
+        self.assertEqual(classify_floor(2), "저층 (2층~5층)")
+        self.assertEqual(classify_floor(5), "저층 (2층~5층)")
+        self.assertEqual(classify_floor(6), "중층 (6층~15층)")
+        self.assertEqual(classify_floor(15), "중층 (6층~15층)")
+        self.assertEqual(classify_floor(16), "고층 (16층 이상)")
+        self.assertEqual(classify_floor(30), "고층 (16층 이상)")
 
     def test_annual_premium_and_fair_price(self):
         raw = pd.DataFrame(
@@ -40,7 +42,7 @@ class AnalysisTest(unittest.TestCase):
         a_2026 = summary[(summary["year"] == 2026) & (summary["plan_type"] == "A")].iloc[0]
         self.assertGreater(a_2026["premium_pct"], 0)
 
-        result = estimate_fair_price(enriched, "A", "중층", 700_000_000)
+        result = estimate_fair_price(enriched, "A", "중층 (6층~15층)", 700_000_000)
         self.assertIsNotNone(result)
         self.assertEqual(result.count, 2)
         self.assertAlmostEqual(result.asking_delta_pct, 11.1111, places=3)
@@ -48,4 +50,3 @@ class AnalysisTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

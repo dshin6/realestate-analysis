@@ -10,7 +10,6 @@ class ComplexConfig:
     legal_dong: str
     jibun: str
     type_by_area: dict[float, str]
-    max_floor_by_building: dict[str, int]
 
 
 TARGET_COMPLEX = ComplexConfig(
@@ -26,15 +25,6 @@ TARGET_COMPLEX = ComplexConfig(
     legal_dong="반송동",
     jibun="21",
     type_by_area={84.80: "A", 84.73: "B", 84.79: "C"},
-    # 232동은 공개 단지정보의 최저 최고층(17층)을 기준으로 둔다.
-    max_floor_by_building={
-        "231": 20,
-        "232": 17,
-        "233": 20,
-        "234": 25,
-        "235": 30,
-        "236": 25,
-    },
 )
 
 

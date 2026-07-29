@@ -20,20 +20,16 @@ def normalize_building(value: object) -> str:
     return text or "미공개"
 
 
-def classify_floor(floor: int, building: str, config: ComplexConfig) -> str:
-    max_floor = config.max_floor_by_building.get(building)
+def classify_floor(floor: int) -> str:
     if floor == 1:
         return "1층"
-    if max_floor and floor == max_floor:
-        return "최상층"
-    if not max_floor or floor < 1:
-        return "구간 미상"
-    ratio = floor / max_floor
-    if ratio <= 0.20:
-        return "저층"
-    if ratio > 0.80:
-        return "고층"
-    return "중층"
+    if 2 <= floor <= 5:
+        return "저층 (2층~5층)"
+    if 6 <= floor <= 15:
+        return "중층 (6층~15층)"
+    if floor >= 16:
+        return "고층 (16층 이상)"
+    return "층 정보 없음"
 
 
 def enrich_trades(frame: pd.DataFrame, config: ComplexConfig) -> pd.DataFrame:
@@ -46,9 +42,7 @@ def enrich_trades(frame: pd.DataFrame, config: ComplexConfig) -> pd.DataFrame:
     result["floor"] = pd.to_numeric(result["floor"]).astype(int)
     result["building"] = result["building"].map(normalize_building)
     result["plan_type"] = result["exclusive_area"].map(lambda area: map_plan_type(area, config))
-    result["floor_group"] = result.apply(
-        lambda row: classify_floor(row["floor"], row["building"], config), axis=1
-    )
+    result["floor_group"] = result["floor"].map(classify_floor)
     result["year"] = result["deal_date"].dt.year
     result["quarter"] = result["deal_date"].dt.to_period("Q").astype(str)
     return result
@@ -103,7 +97,13 @@ def building_summary(frame: pd.DataFrame) -> pd.DataFrame:
 def floor_summary(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame(columns=["floor_group", "median_price", "trades"])
-    order = ["1층", "저층", "중층", "고층", "최상층", "구간 미상"]
+    order = [
+        "1층",
+        "저층 (2층~5층)",
+        "중층 (6층~15층)",
+        "고층 (16층 이상)",
+        "층 정보 없음",
+    ]
     result = (
         frame.groupby("floor_group", as_index=False, observed=True)
         .agg(median_price=("price_won", "median"), trades=("price_won", "size"))
