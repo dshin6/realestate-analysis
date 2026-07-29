@@ -65,9 +65,17 @@ class AnalysisTest(unittest.TestCase):
         self.assertEqual(a_count, 2)
 
         floors = floor_average_summary(enriched)
-        low = floors[floors["floor_group"] == "저층 (2층~5층)"].iloc[0]
+        low = floors[
+            (floors["floor_group"] == "저층 (2층~5층)")
+            & (floors["plan_type"] == "A")
+        ].iloc[0]
         self.assertEqual(low["trades"], 2)
         self.assertEqual(low["average_price"], 650_000_000)
+        middle_b = floors[
+            (floors["floor_group"] == "중층 (6층~15층)")
+            & (floors["plan_type"] == "B")
+        ].iloc[0]
+        self.assertEqual(middle_b["average_price"], 550_000_000)
 
     def test_floor_price_index_uses_same_type_high_floor_as_100(self):
         raw = pd.DataFrame(

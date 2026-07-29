@@ -37,9 +37,11 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertTrue(all(trace.type == "bar" for trace in volume_figure.data))
 
         floor_figure = _floor_distribution_figure(trades)
-        bar_points = sum(len(trace.x) for trace in floor_figure.data if trace.type == "bar")
+        bar_traces = [trace for trace in floor_figure.data if trace.type == "bar"]
+        bar_points = sum(len(trace.x) for trace in bar_traces)
         scatter_points = sum(len(trace.x) for trace in floor_figure.data if trace.type == "scatter")
         self.assertEqual(bar_points, 3)
+        self.assertEqual({trace.name for trace in bar_traces}, {"A 평균", "B 평균"})
         self.assertEqual(scatter_points, len(trades))
 
         index_figure = _floor_price_index_figure(trades)

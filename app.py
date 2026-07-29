@@ -78,39 +78,57 @@ def _annual_type_volume_figure(frame: pd.DataFrame) -> go.Figure:
 
 def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
     summary = floor_average_summary(frame)
-    groups = [str(value) for value in summary["floor_group"]]
+    groups = [str(value) for value in summary["floor_group"].drop_duplicates()]
     positions = list(range(len(groups)))
-    average_eok = summary["average_price"] / 100_000_000
+    group_positions = {group: index for index, group in enumerate(groups)}
+    plan_types = [value for value in ["A", "B", "C", "기타"] if value in summary["plan_type"].unique()]
+    spacing = 0.22
+    type_offsets = {
+        plan_type: (index - (len(plan_types) - 1) / 2) * spacing
+        for index, plan_type in enumerate(plan_types)
+    }
 
     figure = go.Figure()
-    figure.add_trace(
-        go.Bar(
-            x=positions,
-            y=average_eok,
-            name="구간 평균",
-            marker={
-                "color": "rgba(47, 107, 79, 0.30)",
-                "line": {"color": "#2F6B4F", "width": 1.5},
-            },
-            text=[
-                f"평균 {price:,.2f}억<br>{int(trades):,}건"
-                for price, trades in zip(average_eok, summary["trades"])
-            ],
-            textposition="outside",
-            cliponaxis=False,
-            hovertemplate="층 구간 평균: %{y:,.2f}억<extra></extra>",
+    for plan_type in plan_types:
+        subset = summary[summary["plan_type"] == plan_type]
+        average_eok = subset["average_price"] / 100_000_000
+        figure.add_trace(
+            go.Bar(
+                x=[group_positions[str(group)] + type_offsets[plan_type] for group in subset["floor_group"]],
+                y=average_eok,
+                width=spacing * 0.82,
+                name=f"{plan_type} 평균",
+                legendgroup=plan_type,
+                marker={
+                    "color": TYPE_COLORS[plan_type],
+                    "opacity": 0.32,
+                    "line": {"color": TYPE_COLORS[plan_type], "width": 1.5},
+                },
+                text=[
+                    f"{price:,.2f}억<br>{int(trades):,}건"
+                    for price, trades in zip(average_eok, subset["trades"])
+                ],
+                textposition="outside",
+                cliponaxis=False,
+                customdata=subset[["trades"]].to_numpy(),
+                hovertemplate=(
+                    f"타입: {plan_type}<br>"
+                    "층 구간 평균: %{y:,.2f}억<br>"
+                    "거래 건수: %{customdata[0]:,}건<extra></extra>"
+                ),
+            )
         )
-    )
 
     points = frame.sort_values(["floor_group", "deal_date", "price_won"]).reset_index(drop=True).copy()
     points["거래가격(억원)"] = points["price_won"] / 100_000_000
-    group_positions = {group: index for index, group in enumerate(groups)}
     points["_x"] = [
-        group_positions[str(group)] + ((index % 17) - 8) * 0.022
-        for index, group in enumerate(points["floor_group"])
+        group_positions[str(group)]
+        + type_offsets[plan_type]
+        + ((index % 7) - 3) * 0.012
+        for index, (group, plan_type) in enumerate(zip(points["floor_group"], points["plan_type"]))
     ]
 
-    for plan_type in ["A", "B", "C", "기타"]:
+    for plan_type in plan_types:
         subset = points[points["plan_type"] == plan_type]
         if subset.empty:
             continue
@@ -128,6 +146,8 @@ def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
                 y=subset["거래가격(억원)"],
                 mode="markers",
                 name=f"{plan_type} 실거래",
+                legendgroup=plan_type,
+                showlegend=False,
                 marker={
                     "color": TYPE_COLORS[plan_type],
                     "size": 7,
@@ -149,7 +169,7 @@ def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
         barmode="overlay",
         xaxis={"tickmode": "array", "tickvals": positions, "ticktext": groups, "title": "층 구간"},
         yaxis={"title": "거래가격(억원)", "rangemode": "tozero"},
-        legend_title_text="표시",
+        legend_title_text="타입별 평균",
         margin={"t": 55},
     )
     return figure
@@ -293,7 +313,10 @@ def main() -> None:
 
     st.subheader("층 구간별 평균과 실거래 분포")
     st.plotly_chart(_floor_distribution_figure(filtered), width="stretch")
-    st.caption("반투명 막대는 구간 평균, 점은 개별 실거래입니다. 거래 수와 점의 분포를 함께 확인하세요.")
+    st.caption(
+        "반투명 막대는 A/B/C 타입별 구간 평균, 같은 색 점은 해당 타입의 개별 실거래입니다. "
+        "막대의 거래 수와 점의 분포를 함께 확인하세요."
+    )
 
     st.subheader("고층 대비 층 구간 가격")
     floor_index = floor_price_index_by_type(filtered)

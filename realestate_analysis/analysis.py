@@ -106,7 +106,7 @@ def building_summary(frame: pd.DataFrame) -> pd.DataFrame:
 
 def floor_average_summary(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
-        return pd.DataFrame(columns=["floor_group", "average_price", "trades"])
+        return pd.DataFrame(columns=["floor_group", "plan_type", "average_price", "trades"])
     order = [
         "1층",
         "저층 (2층~5층)",
@@ -115,11 +115,11 @@ def floor_average_summary(frame: pd.DataFrame) -> pd.DataFrame:
         "층 정보 없음",
     ]
     result = (
-        frame.groupby("floor_group", as_index=False, observed=True)
+        frame.groupby(["floor_group", "plan_type"], as_index=False, observed=True)
         .agg(average_price=("price_won", "mean"), trades=("price_won", "size"))
     )
     result["floor_group"] = pd.Categorical(result["floor_group"], order, ordered=True)
-    return result.sort_values("floor_group")
+    return result.sort_values(["floor_group", "plan_type"])
 
 
 def floor_price_index_by_type(frame: pd.DataFrame) -> pd.DataFrame:
