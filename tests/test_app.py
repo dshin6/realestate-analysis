@@ -12,6 +12,7 @@ class DashboardRenderTest(unittest.TestCase):
     def test_chart_builders_keep_raw_points_and_average_bars(self):
         from app import (
             _annual_type_volume_figure,
+            _filter_by_month_range,
             _floor_distribution_figure,
             _floor_price_index_figure,
             _trade_scatter_figure,
@@ -38,15 +39,35 @@ class DashboardRenderTest(unittest.TestCase):
 
         floor_figure = _floor_distribution_figure(trades)
         bar_traces = [trace for trace in floor_figure.data if trace.type == "bar"]
+        scatter_traces = [trace for trace in floor_figure.data if trace.type == "scatter"]
         bar_points = sum(len(trace.x) for trace in bar_traces)
-        scatter_points = sum(len(trace.x) for trace in floor_figure.data if trace.type == "scatter")
+        scatter_points = sum(len(trace.x) for trace in scatter_traces)
         self.assertEqual(bar_points, 3)
         self.assertEqual({trace.name for trace in bar_traces}, {"A 평균", "B 평균"})
         self.assertEqual(scatter_points, len(trades))
+        self.assertTrue(all(trace.marker.opacity >= 0.8 for trace in bar_traces))
+        self.assertTrue(all(trace.marker.opacity <= 0.4 for trace in scatter_traces))
 
         index_figure = _floor_price_index_figure(trades)
         self.assertTrue(all(trace.type == "bar" for trace in index_figure.data))
         self.assertEqual(sum(len(trace.x) for trace in index_figure.data), 2)
+
+        month_rows = pd.DataFrame(
+            {
+                "deal_date": pd.to_datetime(
+                    ["2025-01-31", "2025-02-01", "2025-02-28", "2025-03-01"]
+                )
+            }
+        )
+        february = _filter_by_month_range(
+            month_rows,
+            pd.Timestamp("2025-02-01"),
+            pd.Timestamp("2025-02-01"),
+        )
+        self.assertEqual(
+            february["deal_date"].dt.strftime("%Y-%m-%d").tolist(),
+            ["2025-02-01", "2025-02-28"],
+        )
 
     def test_prepare_trades_replaces_stale_floor_groups(self):
         from app import _prepare_trades

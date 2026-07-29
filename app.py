@@ -40,6 +40,16 @@ def _prepare_trades(frame: pd.DataFrame) -> pd.DataFrame:
     return enrich_trades(frame, TARGET_COMPLEX)
 
 
+def _filter_by_month_range(
+    frame: pd.DataFrame,
+    start_month: pd.Timestamp,
+    end_month: pd.Timestamp,
+) -> pd.DataFrame:
+    start = pd.Timestamp(start_month).to_period("M").to_timestamp()
+    end_exclusive = pd.Timestamp(end_month).to_period("M").to_timestamp() + pd.offsets.MonthBegin(1)
+    return frame[(frame["deal_date"] >= start) & (frame["deal_date"] < end_exclusive)]
+
+
 def _trade_scatter_figure(frame: pd.DataFrame) -> go.Figure:
     chart_data = frame.copy()
     chart_data["거래일"] = chart_data["deal_date"]
@@ -101,7 +111,7 @@ def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
                 legendgroup=plan_type,
                 marker={
                     "color": TYPE_COLORS[plan_type],
-                    "opacity": 0.32,
+                    "opacity": 0.88,
                     "line": {"color": TYPE_COLORS[plan_type], "width": 1.5},
                 },
                 text=[
@@ -151,7 +161,7 @@ def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
                 marker={
                     "color": TYPE_COLORS[plan_type],
                     "size": 7,
-                    "opacity": 0.65,
+                    "opacity": 0.35,
                     "line": {"color": "#FAF8F3", "width": 0.5},
                 },
                 customdata=custom_data,
@@ -277,19 +287,26 @@ def main() -> None:
         st.caption("단지명·법정동 코드 또는 API 응답 필드가 변경됐는지 확인이 필요합니다.")
         st.stop()
 
-    min_year, max_year = int(trades["year"].min()), int(trades["year"].max())
+    min_month = trades["deal_date"].min().to_period("M").to_timestamp()
+    max_month = trades["deal_date"].max().to_period("M").to_timestamp()
+    month_options = pd.date_range(min_month, max_month, freq="MS").to_list()
     available_types = [value for value in ["A", "B", "C", "기타"] if value in trades["plan_type"].unique()]
     with st.sidebar:
         st.header("분석 조건")
-        year_range = st.slider("거래 연도", min_year, max_year, (min_year, max_year))
+        month_range = st.select_slider(
+            "거래 월",
+            options=month_options,
+            value=(min_month, max_month),
+            format_func=lambda value: pd.Timestamp(value).strftime("%Y-%m"),
+        )
         selected_types = st.multiselect("평면 타입", available_types, default=available_types)
         buildings = sorted(trades["building"].unique())
         selected_buildings = st.multiselect("동", buildings, default=buildings)
 
-    filtered = trades[
-        trades["year"].between(*year_range)
-        & trades["plan_type"].isin(selected_types)
-        & trades["building"].isin(selected_buildings)
+    period_trades = _filter_by_month_range(trades, *month_range)
+    filtered = period_trades[
+        period_trades["plan_type"].isin(selected_types)
+        & period_trades["building"].isin(selected_buildings)
     ]
     if filtered.empty:
         st.warning("선택한 조건에 해당하는 거래가 없습니다. 필터 범위를 넓혀 주세요.")
@@ -314,7 +331,7 @@ def main() -> None:
     st.subheader("층 구간별 평균과 실거래 분포")
     st.plotly_chart(_floor_distribution_figure(filtered), width="stretch")
     st.caption(
-        "반투명 막대는 A/B/C 타입별 구간 평균, 같은 색 점은 해당 타입의 개별 실거래입니다. "
+        "진한 막대는 A/B/C 타입별 구간 평균, 투명한 같은 색 점은 해당 타입의 개별 실거래입니다. "
         "막대의 거래 수와 점의 분포를 함께 확인하세요."
     )
 
