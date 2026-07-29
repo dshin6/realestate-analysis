@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from .config import ComplexConfig
@@ -149,6 +150,109 @@ def floor_price_index_by_type(frame: pd.DataFrame) -> pd.DataFrame:
     result = summary.join(high_floor, on="plan_type").dropna(subset=["high_floor_average"])
     result["price_index_pct"] = result["average_price"] / result["high_floor_average"] * 100
     return result[columns].sort_values(["floor_group", "plan_type"])
+
+
+def adjusted_premium_summary(frame: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "factor",
+        "category",
+        "reference",
+        "premium_pct",
+        "ci_low_pct",
+        "ci_high_pct",
+        "trades",
+        "observations",
+        "months",
+        "is_reference",
+    ]
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+
+    floor_order = [
+        "1층",
+        "저층 (2층~5층)",
+        "중층 (6층~15층)",
+        "고층 (16층 이상)",
+    ]
+    work = frame[
+        (pd.to_numeric(frame["price_won"], errors="coerce") > 0)
+        & frame["floor_group"].isin(floor_order)
+    ].copy()
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+
+    work["month"] = pd.to_datetime(work["deal_date"]).dt.to_period("M").astype(str)
+    type_levels = [
+        value for value in ["A", "B", "C", "기타"] if value in work["plan_type"].unique()
+    ]
+    floor_levels = [value for value in floor_order if value in work["floor_group"].unique()]
+    month_levels = sorted(work["month"].unique())
+    type_reference = "B" if "B" in type_levels else str(work["plan_type"].value_counts().idxmax())
+    floor_reference = (
+        "고층 (16층 이상)"
+        if "고층 (16층 이상)" in floor_levels
+        else str(work["floor_group"].value_counts().idxmax())
+    )
+
+    design_columns = [np.ones(len(work), dtype=float)]
+    coefficient_index: dict[tuple[str, str], int] = {}
+    for month in month_levels[1:]:
+        design_columns.append((work["month"] == month).to_numpy(dtype=float))
+    for category in type_levels:
+        if category == type_reference:
+            continue
+        coefficient_index[("타입", category)] = len(design_columns)
+        design_columns.append((work["plan_type"] == category).to_numpy(dtype=float))
+    for category in floor_levels:
+        if category == floor_reference:
+            continue
+        coefficient_index[("층 구간", category)] = len(design_columns)
+        design_columns.append((work["floor_group"] == category).to_numpy(dtype=float))
+
+    design = np.column_stack(design_columns)
+    target = np.log(work["price_won"].to_numpy(dtype=float))
+    coefficients, _, rank, _ = np.linalg.lstsq(design, target, rcond=None)
+    if rank < design.shape[1] or len(work) <= rank:
+        return pd.DataFrame(columns=columns)
+
+    residuals = target - design @ coefficients
+    bread = np.linalg.pinv(design.T @ design)
+    weighted_design = design * residuals[:, None]
+    meat = weighted_design.T @ weighted_design
+    covariance = (len(work) / (len(work) - rank)) * bread @ meat @ bread
+    standard_errors = np.sqrt(np.clip(np.diag(covariance), 0, None))
+
+    rows: list[dict[str, object]] = []
+    for factor, levels, reference, source_column in [
+        ("타입", type_levels, type_reference, "plan_type"),
+        ("층 구간", floor_levels, floor_reference, "floor_group"),
+    ]:
+        if len(levels) < 2:
+            continue
+        for category in levels:
+            is_reference = category == reference
+            if is_reference:
+                coefficient = 0.0
+                standard_error = 0.0
+            else:
+                index = coefficient_index[(factor, category)]
+                coefficient = float(coefficients[index])
+                standard_error = float(standard_errors[index])
+            rows.append(
+                {
+                    "factor": factor,
+                    "category": category,
+                    "reference": reference,
+                    "premium_pct": float(np.expm1(coefficient) * 100),
+                    "ci_low_pct": float(np.expm1(coefficient - 1.96 * standard_error) * 100),
+                    "ci_high_pct": float(np.expm1(coefficient + 1.96 * standard_error) * 100),
+                    "trades": int((work[source_column] == category).sum()),
+                    "observations": int(len(work)),
+                    "months": int(len(month_levels)),
+                    "is_reference": is_reference,
+                }
+            )
+    return pd.DataFrame(rows, columns=columns)
 
 
 @dataclass(frozen=True)

@@ -11,6 +11,7 @@ from streamlit.testing.v1 import AppTest
 class DashboardRenderTest(unittest.TestCase):
     def test_chart_builders_keep_raw_points_and_average_bars(self):
         from app import (
+            _adjusted_premium_figure,
             _annual_type_volume_figure,
             _filter_by_month_range,
             _floor_distribution_figure,
@@ -68,6 +69,25 @@ class DashboardRenderTest(unittest.TestCase):
             february["deal_date"].dt.strftime("%Y-%m-%d").tolist(),
             ["2025-02-01", "2025-02-28"],
         )
+
+        premium_rows = []
+        for month, market_price in [("2025-01", 500_000_000), ("2025-02", 1_000_000_000)]:
+            for area, multiplier in [(84.80, 1.10), (84.73, 1.00), (84.79, 0.90)]:
+                for floor, floor_multiplier in [(3, 0.80), (18, 1.00)]:
+                    premium_rows.append(
+                        {
+                            "deal_date": f"{month}-10",
+                            "price_won": market_price * multiplier * floor_multiplier,
+                            "exclusive_area": area,
+                            "floor": floor,
+                            "building": "231동",
+                        }
+                    )
+        premium_trades = enrich_trades(pd.DataFrame(premium_rows), TARGET_COMPLEX)
+        premium_figure = _adjusted_premium_figure(premium_trades)
+        self.assertTrue(all(trace.type == "bar" for trace in premium_figure.data))
+        self.assertEqual(sum(len(trace.x) for trace in premium_figure.data), 5)
+        self.assertTrue(all(value >= 0 for trace in premium_figure.data for value in trace.error_x.array))
 
     def test_prepare_trades_replaces_stale_floor_groups(self):
         from app import _prepare_trades

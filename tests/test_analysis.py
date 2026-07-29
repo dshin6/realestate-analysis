@@ -3,6 +3,7 @@ import unittest
 import pandas as pd
 
 from realestate_analysis.analysis import (
+    adjusted_premium_summary,
     annual_type_counts,
     annual_type_summary,
     building_summary,
@@ -122,6 +123,43 @@ class AnalysisTest(unittest.TestCase):
         self.assertAlmostEqual(result["average_price"], 2_000_000_000 / 3)
         self.assertEqual(result["trades"], 3)
         self.assertNotIn("median_price", result.index)
+
+    def test_adjusted_premium_summary_controls_month_type_and_floor(self):
+        rows = []
+        areas = {"A": 84.80, "B": 84.73, "C": 84.79}
+        type_multiplier = {"A": 1.10, "B": 1.00, "C": 0.90}
+        floors = {
+            "저층 (2층~5층)": (3, 0.80),
+            "고층 (16층 이상)": (18, 1.00),
+        }
+        for month, market_price in [("2025-01", 500_000_000), ("2025-02", 1_000_000_000)]:
+            for plan_type, area in areas.items():
+                for floor_group, (floor, floor_multiplier) in floors.items():
+                    rows.append(
+                        {
+                            "deal_date": f"{month}-10",
+                            "price_won": market_price * type_multiplier[plan_type] * floor_multiplier,
+                            "exclusive_area": area,
+                            "floor": floor,
+                            "building": "231동",
+                        }
+                    )
+        enriched = enrich_trades(pd.DataFrame(rows), TARGET_COMPLEX)
+
+        result = adjusted_premium_summary(enriched)
+
+        type_a = result[(result["factor"] == "타입") & (result["category"] == "A")].iloc[0]
+        type_b = result[(result["factor"] == "타입") & (result["category"] == "B")].iloc[0]
+        low = result[
+            (result["factor"] == "층 구간")
+            & (result["category"] == "저층 (2층~5층)")
+        ].iloc[0]
+        self.assertAlmostEqual(type_a["premium_pct"], 10.0, places=6)
+        self.assertEqual(type_b["premium_pct"], 0.0)
+        self.assertAlmostEqual(low["premium_pct"], -20.0, places=6)
+        self.assertLessEqual(type_a["ci_low_pct"], type_a["premium_pct"])
+        self.assertGreaterEqual(type_a["ci_high_pct"], type_a["premium_pct"])
+        self.assertEqual(type_a["trades"], 4)
 
 
 if __name__ == "__main__":

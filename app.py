@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from realestate_analysis.analysis import (
+    adjusted_premium_summary,
     annual_type_counts,
     building_summary,
     enrich_trades,
@@ -223,6 +224,61 @@ def _floor_price_index_figure(frame: pd.DataFrame) -> go.Figure:
     return figure
 
 
+def _adjusted_premium_figure(frame: pd.DataFrame) -> go.Figure:
+    summary = adjusted_premium_summary(frame)
+    figure = go.Figure()
+    for factor in ["타입", "층 구간"]:
+        subset = summary[summary["factor"] == factor]
+        if subset.empty:
+            continue
+        labels = [
+            f"{factor} {category}" + (" · 기준" if is_reference else "")
+            for category, is_reference in zip(subset["category"], subset["is_reference"])
+        ]
+        colors = (
+            [TYPE_COLORS.get(str(category), "#8D8D8D") for category in subset["category"]]
+            if factor == "타입"
+            else ["#2F6B4F"] * len(subset)
+        )
+        premium = subset["premium_pct"].to_numpy()
+        figure.add_trace(
+            go.Bar(
+                x=premium,
+                y=labels,
+                orientation="h",
+                name=factor,
+                marker={"color": colors, "opacity": 0.88},
+                text=[f"{value:+.1f}% · {int(trades):,}건" for value, trades in zip(premium, subset["trades"])],
+                textposition="outside",
+                cliponaxis=False,
+                customdata=subset[["ci_low_pct", "ci_high_pct", "trades", "reference", "months"]].to_numpy(),
+                error_x={
+                    "type": "data",
+                    "array": (subset["ci_high_pct"] - subset["premium_pct"]).clip(lower=0),
+                    "arrayminus": (subset["premium_pct"] - subset["ci_low_pct"]).clip(lower=0),
+                    "visible": True,
+                    "color": "#4D5562",
+                },
+                hovertemplate=(
+                    "보정 프리미엄: %{x:+.2f}%<br>"
+                    "95% 신뢰구간: %{customdata[0]:+.2f}% ~ %{customdata[1]:+.2f}%<br>"
+                    "거래 건수: %{customdata[2]:,}건<br>"
+                    "기준: %{customdata[3]}<br>"
+                    "분석 월 수: %{customdata[4]:,}개월<extra></extra>"
+                ),
+            )
+        )
+    figure.add_vline(x=0, line_dash="dash", line_color="#4D5562")
+    figure.update_layout(
+        barmode="group",
+        xaxis={"title": "시점 보정 프리미엄(%)"},
+        yaxis={"title": "", "autorange": "reversed"},
+        legend_title_text="요인",
+        margin={"t": 30, "l": 20, "r": 80},
+    )
+    return figure
+
+
 def _load_data(service_key: str, force_refresh: bool) -> tuple[pd.DataFrame, str]:
     progress_bar = st.progress(0, text="국토교통부 실거래를 가져오는 중입니다.")
 
@@ -344,6 +400,17 @@ def main() -> None:
         st.caption(
             "현재 선택 기간에서 각 타입·층 구간 평균을 같은 타입의 고층(16층 이상) 평균과 비교했습니다. "
             "위 평균 막대와 동일한 가격 기준이며, 고층 거래가 없는 타입은 계산에서 제외됩니다."
+        )
+
+    st.subheader("시점 보정 타입·층 프리미엄")
+    adjusted_premium = adjusted_premium_summary(filtered)
+    if adjusted_premium.empty:
+        st.info("선택한 기간의 표본이 부족하거나 타입·층 구간이 겹쳐 보정 프리미엄을 계산할 수 없습니다.")
+    else:
+        st.plotly_chart(_adjusted_premium_figure(filtered), width="stretch")
+        st.caption(
+            "월별 시장가격 변동을 통제한 로그가격 회귀 결과입니다. B타입과 고층을 우선 기준 0%로 사용하며, "
+            "가로선은 95% 신뢰구간입니다. 신뢰구간이 0%를 지나면 가격 차이가 명확하지 않을 수 있습니다."
         )
 
     st.subheader("동·타입별 가격 비교")
