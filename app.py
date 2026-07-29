@@ -35,6 +35,10 @@ def _price_label(value: float) -> str:
     return f"{won_to_eok(value):,.2f}억"
 
 
+def _prepare_trades(frame: pd.DataFrame) -> pd.DataFrame:
+    return enrich_trades(frame, TARGET_COMPLEX)
+
+
 def _load_data(service_key: str, force_refresh: bool) -> tuple[pd.DataFrame, str]:
     progress_bar = st.progress(0, text="국토교통부 실거래를 가져오는 중입니다.")
 
@@ -51,7 +55,7 @@ def _load_data(service_key: str, force_refresh: bool) -> tuple[pd.DataFrame, str
         progress=update_progress,
     )
     progress_bar.empty()
-    return enrich_trades(frame, TARGET_COMPLEX), fetched_at
+    return frame, fetched_at
 
 
 def _render_setup() -> None:
@@ -92,7 +96,7 @@ def main() -> None:
         st.session_state["trades"] = trades
         st.session_state["fetched_at"] = fetched_at
 
-    trades = st.session_state["trades"]
+    trades = _prepare_trades(st.session_state["trades"])
     fetched_at = st.session_state.get("fetched_at", "")
     if trades.empty:
         st.warning("현재 조건에서 대상 단지의 정상 실거래를 찾지 못했습니다.")

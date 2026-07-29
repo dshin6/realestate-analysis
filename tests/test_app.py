@@ -4,10 +4,31 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 
 class DashboardRenderTest(unittest.TestCase):
+    def test_prepare_trades_replaces_stale_floor_groups(self):
+        from app import _prepare_trades
+
+        stale = pd.DataFrame(
+            [
+                {
+                    "deal_date": "2026-01-10",
+                    "price_won": 660_000_000,
+                    "exclusive_area": 84.80,
+                    "floor": 10,
+                    "building": "231동",
+                    "floor_group": "중층",
+                }
+            ]
+        )
+
+        prepared = _prepare_trades(stale)
+
+        self.assertEqual(prepared.iloc[0]["floor_group"], "중층 (6층~15층)")
+
     def test_cached_data_renders_charts_and_table(self):
         project_root = Path(__file__).resolve().parents[1]
         rows = [
