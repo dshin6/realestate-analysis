@@ -348,19 +348,19 @@ def main() -> None:
 
     st.subheader("동·타입별 가격 비교")
     building_data = building_summary(filtered)
-    building_data["중앙값(억원)"] = building_data["median_price"] / 100_000_000
+    building_data["평균가격(억원)"] = building_data["average_price"] / 100_000_000
     fig_building = px.bar(
         building_data,
         x="building",
-        y="중앙값(억원)",
+        y="평균가격(억원)",
         color="plan_type",
         barmode="group",
         color_discrete_map=TYPE_COLORS,
         labels={"building": "동", "plan_type": "타입"},
-        hover_data={"trades": True, "median_price": False},
+        hover_data={"trades": True, "average_price": False},
     )
     st.plotly_chart(fig_building, width="stretch")
-    st.caption("동 정보가 공개되지 않은 거래는 '미공개'로 묶입니다.")
+    st.caption("막대는 선택 기간의 동·타입별 평균가격입니다. 동 정보가 공개되지 않은 거래는 '미공개'로 묶입니다.")
 
     with st.expander("검토 중인 매물 가격 비교", expanded=True):
         form_left, form_mid, form_right = st.columns(3)

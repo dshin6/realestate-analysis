@@ -96,10 +96,10 @@ def quarterly_type_summary(frame: pd.DataFrame) -> pd.DataFrame:
 
 def building_summary(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
-        return pd.DataFrame(columns=["building", "plan_type", "median_price", "trades"])
+        return pd.DataFrame(columns=["building", "plan_type", "average_price", "trades"])
     return (
         frame.groupby(["building", "plan_type"], as_index=False)
-        .agg(median_price=("price_won", "median"), trades=("price_won", "size"))
+        .agg(average_price=("price_won", "mean"), trades=("price_won", "size"))
         .sort_values(["building", "plan_type"])
     )
 

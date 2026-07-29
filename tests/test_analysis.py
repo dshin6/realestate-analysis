@@ -5,6 +5,7 @@ import pandas as pd
 from realestate_analysis.analysis import (
     annual_type_counts,
     annual_type_summary,
+    building_summary,
     classify_floor,
     enrich_trades,
     estimate_fair_price,
@@ -105,6 +106,22 @@ class AnalysisTest(unittest.TestCase):
         self.assertEqual(a_first["trades"], 3)
         self.assertEqual(a_high["price_index_pct"], 100.0)
         self.assertFalse((result["plan_type"] == "B").any())
+
+    def test_building_summary_uses_average_price(self):
+        raw = pd.DataFrame(
+            [
+                {"deal_date": "2025-01-10", "price_won": 500_000_000, "exclusive_area": 84.80, "floor": 10, "building": "231동"},
+                {"deal_date": "2025-02-10", "price_won": 500_000_000, "exclusive_area": 84.80, "floor": 12, "building": "231동"},
+                {"deal_date": "2025-03-10", "price_won": 1_000_000_000, "exclusive_area": 84.80, "floor": 15, "building": "231동"},
+            ]
+        )
+        enriched = enrich_trades(raw, TARGET_COMPLEX)
+
+        result = building_summary(enriched).iloc[0]
+
+        self.assertAlmostEqual(result["average_price"], 2_000_000_000 / 3)
+        self.assertEqual(result["trades"], 3)
+        self.assertNotIn("median_price", result.index)
 
 
 if __name__ == "__main__":
