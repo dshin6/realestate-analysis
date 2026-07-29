@@ -4,15 +4,15 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from realestate_analysis.analysis import (
-    annual_type_summary,
+    annual_type_counts,
     building_summary,
     enrich_trades,
     estimate_fair_price,
-    floor_summary,
-    quarterly_type_summary,
+    floor_average_summary,
     won_to_eok,
 )
 from realestate_analysis.api import PublicDataApiError, current_deal_month, load_trades
@@ -37,6 +37,121 @@ def _price_label(value: float) -> str:
 
 def _prepare_trades(frame: pd.DataFrame) -> pd.DataFrame:
     return enrich_trades(frame, TARGET_COMPLEX)
+
+
+def _trade_scatter_figure(frame: pd.DataFrame) -> go.Figure:
+    chart_data = frame.copy()
+    chart_data["거래일"] = chart_data["deal_date"]
+    chart_data["거래가격(억원)"] = chart_data["price_won"] / 100_000_000
+    chart_data["타입"] = chart_data["plan_type"]
+    chart_data["동"] = chart_data["building"]
+    chart_data["실제 층"] = chart_data["floor"]
+    figure = px.scatter(
+        chart_data,
+        x="거래일",
+        y="거래가격(억원)",
+        color="타입",
+        color_discrete_map=TYPE_COLORS,
+        hover_data=["동", "실제 층"],
+    )
+    figure.update_traces(marker={"size": 7, "opacity": 0.7, "line": {"width": 0.5, "color": "#FAF8F3"}})
+    figure.update_layout(legend_title_text="타입", hovermode="closest")
+    return figure
+
+
+def _annual_type_volume_figure(frame: pd.DataFrame) -> go.Figure:
+    chart_data = annual_type_counts(frame)
+    chart_data["연도"] = chart_data["year"].astype(str)
+    figure = px.bar(
+        chart_data,
+        x="연도",
+        y="trades",
+        color="plan_type",
+        barmode="group",
+        color_discrete_map=TYPE_COLORS,
+        labels={"trades": "거래 건수", "plan_type": "타입"},
+    )
+    figure.update_layout(legend_title_text="타입")
+    return figure
+
+
+def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
+    summary = floor_average_summary(frame)
+    groups = [str(value) for value in summary["floor_group"]]
+    positions = list(range(len(groups)))
+    average_eok = summary["average_price"] / 100_000_000
+
+    figure = go.Figure()
+    figure.add_trace(
+        go.Bar(
+            x=positions,
+            y=average_eok,
+            name="구간 평균",
+            marker={
+                "color": "rgba(47, 107, 79, 0.30)",
+                "line": {"color": "#2F6B4F", "width": 1.5},
+            },
+            text=[
+                f"평균 {price:,.2f}억<br>{int(trades):,}건"
+                for price, trades in zip(average_eok, summary["trades"])
+            ],
+            textposition="outside",
+            cliponaxis=False,
+            hovertemplate="층 구간 평균: %{y:,.2f}억<extra></extra>",
+        )
+    )
+
+    points = frame.sort_values(["floor_group", "deal_date", "price_won"]).reset_index(drop=True).copy()
+    points["거래가격(억원)"] = points["price_won"] / 100_000_000
+    group_positions = {group: index for index, group in enumerate(groups)}
+    points["_x"] = [
+        group_positions[str(group)] + ((index % 17) - 8) * 0.022
+        for index, group in enumerate(points["floor_group"])
+    ]
+
+    for plan_type in ["A", "B", "C", "기타"]:
+        subset = points[points["plan_type"] == plan_type]
+        if subset.empty:
+            continue
+        custom_data = list(
+            zip(
+                subset["deal_date"].dt.strftime("%Y-%m-%d"),
+                subset["building"],
+                subset["floor"],
+                subset["plan_type"],
+            )
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=subset["_x"],
+                y=subset["거래가격(억원)"],
+                mode="markers",
+                name=f"{plan_type} 실거래",
+                marker={
+                    "color": TYPE_COLORS[plan_type],
+                    "size": 7,
+                    "opacity": 0.65,
+                    "line": {"color": "#FAF8F3", "width": 0.5},
+                },
+                customdata=custom_data,
+                hovertemplate=(
+                    "계약일: %{customdata[0]}<br>"
+                    "타입: %{customdata[3]}<br>"
+                    "동: %{customdata[1]}<br>"
+                    "실제 층: %{customdata[2]}층<br>"
+                    "거래가격: %{y:,.2f}억<extra></extra>"
+                ),
+            )
+        )
+
+    figure.update_layout(
+        barmode="overlay",
+        xaxis={"tickmode": "array", "tickvals": positions, "ticktext": groups, "title": "층 구간"},
+        yaxis={"title": "거래가격(억원)", "rangemode": "tozero"},
+        legend_title_text="표시",
+        margin={"t": 55},
+    )
+    return figure
 
 
 def _load_data(service_key: str, force_refresh: bool) -> tuple[pd.DataFrame, str]:
@@ -123,85 +238,23 @@ def main() -> None:
 
     latest_date = filtered["deal_date"].max()
     recent = filtered[filtered["deal_date"] >= latest_date - pd.DateOffset(months=12)]
-    type_summary = annual_type_summary(filtered)
-    a_premium = type_summary[type_summary["plan_type"] == "A"]["premium_pct"]
-
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("선택 거래", f"{len(filtered):,}건")
     col2.metric("최근 거래일", latest_date.strftime("%Y-%m-%d"))
     col3.metric("최근 12개월 중앙값", _price_label(recent["price_won"].median()) if not recent.empty else "자료 없음")
-    col4.metric("A 타입 단순 프리미엄", f"{a_premium.iloc[-1]:+.1f}%" if not a_premium.empty else "자료 없음")
+    col4.metric("최근 12개월 거래", f"{len(recent):,}건")
 
-    st.subheader("연도별 타입 가격")
-    price_chart_data = type_summary.copy()
-    price_chart_data["중앙값(억원)"] = price_chart_data["median_price"] / 100_000_000
-    fig_price = px.line(
-        price_chart_data,
-        x="year",
-        y="중앙값(억원)",
-        color="plan_type",
-        markers=True,
-        color_discrete_map=TYPE_COLORS,
-        labels={"year": "연도", "plan_type": "타입"},
-        hover_data={"trades": True, "median_price": False},
-    )
-    fig_price.update_layout(legend_title_text="타입", hovermode="x unified")
-    st.plotly_chart(fig_price, width="stretch")
+    st.subheader("전체 실거래 가격")
+    st.plotly_chart(_trade_scatter_figure(filtered), width="stretch")
+    st.caption("점 하나가 실거래 한 건입니다. 색상은 A/B/C 평면 타입을 구분합니다.")
 
-    with st.expander("분기별 상세 추세"):
-        quarter_data = quarterly_type_summary(filtered)
-        quarter_data["중앙값(억원)"] = quarter_data["median_price"] / 100_000_000
-        fig_quarter = px.line(
-            quarter_data,
-            x="quarter",
-            y="중앙값(억원)",
-            color="plan_type",
-            markers=True,
-            color_discrete_map=TYPE_COLORS,
-            labels={"quarter": "분기", "plan_type": "타입"},
-            hover_data={"trades": True, "median_price": False},
-        )
-        st.plotly_chart(fig_quarter, width="stretch")
-        st.caption("거래가 1건인 분기도 표시됩니다. 거래 수를 함께 확인하세요.")
+    st.subheader("연도별 타입 거래 건수")
+    st.plotly_chart(_annual_type_volume_figure(filtered), width="stretch")
+    st.caption("거래 건수는 타입별 거래 활발도를 보여주지만 선호도를 직접 측정한 값은 아닙니다.")
 
-    left, right = st.columns(2)
-    with left:
-        st.subheader("시장 변동 단순 보정 프리미엄")
-        fig_premium = px.line(
-            type_summary,
-            x="year",
-            y="premium_pct",
-            color="plan_type",
-            markers=True,
-            color_discrete_map=TYPE_COLORS,
-            labels={"year": "연도", "premium_pct": "단지 연도 중앙값 대비(%)", "plan_type": "타입"},
-            hover_data={"trades": True, "median_price": False, "normalized_median": False},
-        )
-        fig_premium.add_hline(y=0, line_dash="dot", line_color="#777777")
-        st.plotly_chart(fig_premium, width="stretch")
-        st.caption("같은 연도의 단지 전체 중앙값을 0%로 둔 단순 비교입니다. 인과적 선호도 측정값은 아닙니다.")
-
-    with right:
-        st.subheader("층 구간별 가격")
-        floor_data = floor_summary(filtered)
-        floor_data["중앙값(억원)"] = floor_data["median_price"] / 100_000_000
-        fig_floor = px.bar(
-            floor_data,
-            x="floor_group",
-            y="중앙값(억원)",
-            text="trades",
-            labels={"floor_group": "층 구간"},
-        )
-        fig_floor.update_traces(
-            marker_color="#2F6B4F",
-            marker_line_color="#1F2A24",
-            marker_line_width=1,
-            texttemplate="%{text:,}건",
-            textposition="outside",
-            cliponaxis=False,
-        )
-        fig_floor.update_layout(showlegend=False, margin={"t": 30})
-        st.plotly_chart(fig_floor, width="stretch")
+    st.subheader("층 구간별 평균과 실거래 분포")
+    st.plotly_chart(_floor_distribution_figure(filtered), width="stretch")
+    st.caption("반투명 막대는 구간 평균, 점은 개별 실거래입니다. 거래 수와 점의 분포를 함께 확인하세요.")
 
     st.subheader("동·타입별 가격 비교")
     building_data = building_summary(filtered)

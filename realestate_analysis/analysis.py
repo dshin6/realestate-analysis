@@ -66,6 +66,16 @@ def annual_type_summary(frame: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
+def annual_type_counts(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame(columns=["year", "plan_type", "trades"])
+    return (
+        frame.groupby(["year", "plan_type"], as_index=False)
+        .agg(trades=("price_won", "size"))
+        .sort_values(["year", "plan_type"])
+    )
+
+
 def quarterly_type_summary(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame(columns=["quarter", "plan_type", "median_price", "trades", "premium_pct"])
@@ -94,9 +104,9 @@ def building_summary(frame: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def floor_summary(frame: pd.DataFrame) -> pd.DataFrame:
+def floor_average_summary(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
-        return pd.DataFrame(columns=["floor_group", "median_price", "trades"])
+        return pd.DataFrame(columns=["floor_group", "average_price", "trades"])
     order = [
         "1층",
         "저층 (2층~5층)",
@@ -106,7 +116,7 @@ def floor_summary(frame: pd.DataFrame) -> pd.DataFrame:
     ]
     result = (
         frame.groupby("floor_group", as_index=False, observed=True)
-        .agg(median_price=("price_won", "median"), trades=("price_won", "size"))
+        .agg(average_price=("price_won", "mean"), trades=("price_won", "size"))
     )
     result["floor_group"] = pd.Categorical(result["floor_group"], order, ordered=True)
     return result.sort_values("floor_group")
