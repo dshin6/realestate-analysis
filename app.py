@@ -23,7 +23,169 @@ from realestate_analysis.config import TARGET_COMPLEX
 
 CACHE_PATH = Path("data/cache/trades.json")
 SEED_PATH = Path("data/seed/trades.json")
-TYPE_COLORS = {"A": "#2F6B4F", "B": "#D08C45", "C": "#4E79A7", "기타": "#8D8D8D"}
+TYPE_COLORS = {"A": "#0071E3", "B": "#34C759", "C": "#FF9F0A", "기타": "#8E8E93"}
+PLOTLY_CONFIG = {"displayModeBar": False, "displaylogo": False, "responsive": True}
+APPLE_STYLES = """
+<style>
+:root {
+    --apple-blue: #0071e3;
+    --apple-text: #1d1d1f;
+    --apple-muted: #6e6e73;
+    --apple-surface: rgba(255, 255, 255, 0.88);
+    --apple-border: rgba(0, 0, 0, 0.09);
+}
+
+html, body, [class*="css"] {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+        "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+}
+
+.stApp {
+    background:
+        radial-gradient(circle at 12% 0%, rgba(0, 113, 227, 0.08), transparent 28rem),
+        #f5f5f7;
+    color: var(--apple-text);
+}
+
+.block-container {
+    max-width: 1180px;
+    padding-top: 3.5rem;
+    padding-bottom: 5rem;
+}
+
+.apple-eyebrow {
+    color: var(--apple-blue);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    margin: 0 0 0.6rem;
+    text-transform: uppercase;
+}
+
+.apple-subtitle {
+    color: var(--apple-muted);
+    font-size: clamp(1rem, 2vw, 1.18rem);
+    line-height: 1.65;
+    margin: -0.4rem 0 2rem;
+    max-width: 44rem;
+}
+
+h1, h2, h3, h4 {
+    color: var(--apple-text);
+    letter-spacing: -0.035em;
+}
+
+h1 {
+    font-size: clamp(2.15rem, 4.5vw, 3.25rem) !important;
+    font-weight: 750 !important;
+    line-height: 1.08 !important;
+    max-width: 68rem;
+}
+
+h2, h3, h4 {
+    font-weight: 700 !important;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--apple-surface);
+    border: 1px solid var(--apple-border);
+    border-radius: 1.25rem;
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.055);
+    backdrop-filter: blur(20px);
+}
+
+div[data-testid="stMetric"] {
+    min-height: 8.5rem;
+    padding: 1.15rem 1.2rem;
+    background: var(--apple-surface);
+    border: 1px solid var(--apple-border);
+    border-radius: 1.15rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.045);
+}
+
+div[data-testid="stMetricLabel"] {
+    color: var(--apple-muted);
+}
+
+div[data-testid="stMetricValue"] {
+    color: var(--apple-text);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+}
+
+.stButton > button,
+.stDownloadButton > button {
+    border-radius: 999px;
+    font-weight: 650;
+    min-height: 2.75rem;
+}
+
+div[data-testid="stExpander"] {
+    background: rgba(255, 255, 255, 0.76);
+    border: 1px solid var(--apple-border);
+    border-radius: 1rem;
+    overflow: hidden;
+}
+
+div[data-testid="stPlotlyChart"] {
+    background: #ffffff;
+    border: 1px solid var(--apple-border);
+    border-radius: 1.25rem;
+    padding: 0.35rem;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.045);
+    overflow: hidden;
+}
+
+@media (max-width: 640px) {
+    .block-container {
+        padding: 4.5rem 1rem 4rem;
+    }
+
+    .apple-subtitle {
+        margin-bottom: 1.35rem;
+    }
+
+    div[data-testid="stMetric"] {
+        min-height: 7rem;
+    }
+
+    div[data-testid="stPlotlyChart"] {
+        border-radius: 1rem;
+        padding: 0;
+    }
+}
+</style>
+"""
+
+
+def _inject_styles() -> None:
+    st.markdown(APPLE_STYLES, unsafe_allow_html=True)
+
+
+def _polish_chart(figure: go.Figure, *, height: int = 390) -> go.Figure:
+    figure.update_layout(
+        height=height,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": "Arial, Apple SD Gothic Neo, sans-serif", "color": "#1D1D1F", "size": 13},
+        hoverlabel={"bgcolor": "#1D1D1F", "font_color": "#FFFFFF", "bordercolor": "#1D1D1F"},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0,
+            "title_text": "",
+        },
+        margin={"l": 18, "r": 18, "t": 56, "b": 42},
+    )
+    figure.update_xaxes(showgrid=False, zeroline=False, automargin=True)
+    figure.update_yaxes(gridcolor="rgba(0,0,0,0.07)", zeroline=False, automargin=True)
+    return figure
+
+
+def _show_chart(figure: go.Figure) -> None:
+    st.plotly_chart(figure, width="stretch", config=PLOTLY_CONFIG)
 
 
 def _service_key() -> str:
@@ -68,7 +230,7 @@ def _trade_scatter_figure(frame: pd.DataFrame) -> go.Figure:
     )
     figure.update_traces(marker={"size": 7, "opacity": 0.7, "line": {"width": 0.5, "color": "#FAF8F3"}})
     figure.update_layout(legend_title_text="타입", hovermode="closest")
-    return figure
+    return _polish_chart(figure)
 
 
 def _annual_type_volume_figure(frame: pd.DataFrame) -> go.Figure:
@@ -84,7 +246,7 @@ def _annual_type_volume_figure(frame: pd.DataFrame) -> go.Figure:
         labels={"trades": "거래 건수", "plan_type": "타입"},
     )
     figure.update_layout(legend_title_text="타입")
-    return figure
+    return _polish_chart(figure)
 
 
 def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
@@ -183,7 +345,7 @@ def _floor_distribution_figure(frame: pd.DataFrame) -> go.Figure:
         legend_title_text="타입별 평균",
         margin={"t": 55},
     )
-    return figure
+    return _polish_chart(figure, height=430)
 
 
 def _floor_price_index_figure(frame: pd.DataFrame) -> go.Figure:
@@ -221,7 +383,7 @@ def _floor_price_index_figure(frame: pd.DataFrame) -> go.Figure:
         yaxis={"title": "고층 대비 가격(%)", "rangemode": "tozero"},
         margin={"t": 55},
     )
-    return figure
+    return _polish_chart(figure)
 
 
 def _adjusted_premium_figure(
@@ -249,19 +411,16 @@ def _adjusted_premium_figure(
     category_labels = (
         [f"{category}타입" for category in subset["category"]]
         if factor == "타입"
-        else subset["category"].astype(str).tolist()
+        else [
+            str(category).split(" (", 1)[0] for category in subset["category"]
+        ]
     )
     premium = subset["premium_pct"].to_numpy()
-    descriptions = [
-        f"{reference_label}보다 {abs(value):.1f}% {'높음' if value > 0 else '낮음'}"
-        if value != 0
-        else f"{reference_label}과 같음"
-        for value in premium
-    ]
+    descriptions = [f"{value:+.1f}%" for value in premium]
     colors = (
         [TYPE_COLORS.get(str(category), "#8D8D8D") for category in subset["category"]]
         if factor == "타입"
-        else ["#2F6B4F"] * len(subset)
+        else ["#0071E3"] * len(subset)
     )
     figure.add_trace(
         go.Bar(
@@ -270,7 +429,10 @@ def _adjusted_premium_figure(
             orientation="h",
             marker={"color": colors, "opacity": 0.92},
             text=descriptions,
-            textposition="outside",
+            textposition="inside",
+            insidetextanchor="middle",
+            constraintext="inside",
+            textfont={"color": "#FFFFFF", "size": 12},
             cliponaxis=False,
             customdata=subset[
                 ["ci_low_pct", "ci_high_pct", "trades", "months"]
@@ -285,12 +447,12 @@ def _adjusted_premium_figure(
         )
     )
     figure.add_vline(x=0, line_dash="dash", line_color="#4D5562")
+    _polish_chart(figure, height=260 if factor == "타입" else 320)
     figure.update_layout(
-        height=260 if factor == "타입" else 320,
         showlegend=False,
-        xaxis={"title": "기준 대비 가격 차이(%)", "zeroline": False},
-        yaxis={"title": "", "autorange": "reversed"},
-        margin={"t": 20, "l": 20, "r": 180, "b": 55},
+        xaxis={"title": "기준 대비 가격 차이(%)", "zeroline": False, "automargin": True},
+        yaxis={"title": "", "autorange": "reversed", "automargin": True},
+        margin={"t": 24, "l": 12, "r": 48, "b": 55},
     )
     return figure
 
@@ -326,9 +488,20 @@ def _render_setup() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="한빛마을 실거래 분석", page_icon="🏠", layout="wide")
+    st.set_page_config(
+        page_title="한빛마을 실거래 분석",
+        page_icon="🏠",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+    _inject_styles()
+    st.markdown('<p class="apple-eyebrow">Hanbit Village · Real Estate Intelligence</p>', unsafe_allow_html=True)
     st.title("한빛마을 한화꿈에그린 실거래 분석")
-    st.caption("A/B/C 평면 타입과 동·층에 따른 실제 거래가격 차이를 확인합니다.")
+    st.markdown(
+        '<p class="apple-subtitle">실거래 흐름과 A/B/C 평면 타입, 동·층별 가격 차이를 '
+        "한눈에 비교해 매수 판단의 기준을 만듭니다.</p>",
+        unsafe_allow_html=True,
+    )
 
     service_key = _service_key()
     if not service_key and not CACHE_PATH.exists() and not SEED_PATH.exists():
@@ -363,17 +536,21 @@ def main() -> None:
     max_month = trades["deal_date"].max().to_period("M").to_timestamp()
     month_options = pd.date_range(min_month, max_month, freq="MS").to_list()
     available_types = [value for value in ["A", "B", "C", "기타"] if value in trades["plan_type"].unique()]
-    with st.sidebar:
-        st.header("분석 조건")
+    buildings = sorted(trades["building"].unique())
+    with st.container(border=True):
+        st.markdown("#### 분석 조건")
+        st.caption("기간 조절은 휴대폰에서도 항상 이곳에 표시됩니다.")
         month_range = st.select_slider(
-            "거래 월",
+            "거래 기간",
             options=month_options,
             value=(min_month, max_month),
             format_func=lambda value: pd.Timestamp(value).strftime("%Y-%m"),
         )
-        selected_types = st.multiselect("평면 타입", available_types, default=available_types)
-        buildings = sorted(trades["building"].unique())
-        selected_buildings = st.multiselect("동", buildings, default=buildings)
+        filter_left, filter_right = st.columns(2)
+        with filter_left:
+            selected_types = st.multiselect("평면 타입", available_types, default=available_types)
+        with filter_right:
+            selected_buildings = st.multiselect("동", buildings, default=buildings)
 
     period_trades = _filter_by_month_range(trades, *month_range)
     filtered = period_trades[
@@ -393,15 +570,15 @@ def main() -> None:
     col4.metric("최근 12개월 거래", f"{len(recent):,}건")
 
     st.subheader("전체 실거래 가격")
-    st.plotly_chart(_trade_scatter_figure(filtered), width="stretch")
+    _show_chart(_trade_scatter_figure(filtered))
     st.caption("점 하나가 실거래 한 건입니다. 색상은 A/B/C 평면 타입을 구분합니다.")
 
     st.subheader("연도별 타입 거래 건수")
-    st.plotly_chart(_annual_type_volume_figure(filtered), width="stretch")
+    _show_chart(_annual_type_volume_figure(filtered))
     st.caption("거래 건수는 타입별 거래 활발도를 보여주지만 선호도를 직접 측정한 값은 아닙니다.")
 
     st.subheader("층 구간별 평균과 실거래 분포")
-    st.plotly_chart(_floor_distribution_figure(filtered), width="stretch")
+    _show_chart(_floor_distribution_figure(filtered))
     st.caption(
         "진한 막대는 A/B/C 타입별 구간 평균, 투명한 같은 색 점은 해당 타입의 개별 실거래입니다. "
         "막대의 거래 수와 점의 분포를 함께 확인하세요."
@@ -412,7 +589,7 @@ def main() -> None:
     if floor_index.empty:
         st.info("선택한 조건에 고층(16층 이상) 거래가 없어 가격 비율을 계산할 수 없습니다.")
     else:
-        st.plotly_chart(_floor_price_index_figure(filtered), width="stretch")
+        _show_chart(_floor_price_index_figure(filtered))
         st.caption(
             "현재 선택 기간에서 각 타입·층 구간 평균을 같은 타입의 고층(16층 이상) 평균과 비교했습니다. "
             "위 평균 막대와 동일한 가격 기준이며, 고층 거래가 없는 타입은 계산에서 제외됩니다."
@@ -424,22 +601,20 @@ def main() -> None:
         st.info("선택한 기간의 표본이 부족해 타입·층 가격 차이를 계산할 수 없습니다.")
     else:
         st.markdown("#### 타입별 가격 차이 · B타입 기준")
-        st.plotly_chart(
+        _show_chart(
             _adjusted_premium_figure(
                 filtered,
                 "타입",
                 summary=adjusted_premium,
-            ),
-            width="stretch",
+            )
         )
         st.markdown("#### 층별 가격 차이 · 고층 기준")
-        st.plotly_chart(
+        _show_chart(
             _adjusted_premium_figure(
                 filtered,
                 "층 구간",
                 summary=adjusted_premium,
-            ),
-            width="stretch",
+            )
         )
         st.caption(
             "같은 거래월의 시장가격 변동과 타입·층 차이를 함께 반영한 비교입니다. "
@@ -459,7 +634,8 @@ def main() -> None:
         labels={"building": "동", "plan_type": "타입"},
         hover_data={"trades": True, "average_price": False},
     )
-    st.plotly_chart(fig_building, width="stretch")
+    _polish_chart(fig_building)
+    _show_chart(fig_building)
     st.caption("막대는 선택 기간의 동·타입별 평균가격입니다. 동 정보가 공개되지 않은 거래는 '미공개'로 묶입니다.")
 
     with st.expander("검토 중인 매물 가격 비교", expanded=True):

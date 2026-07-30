@@ -1,8 +1,16 @@
 [theme]
-primaryColor = "#2F6B4F"
-backgroundColor = "#FAF8F3"
-secondaryBackgroundColor = "#EEF3ED"
-textColor = "#1F2A24"
+base = "light"
+primaryColor = "#0071E3"
+backgroundColor = "#F5F5F7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1D1D1F"
+linkColor = "#0066CC"
+borderColor = "#D2D2D7"
+baseRadius = "1rem"
+buttonRadius = "full"
+font = "sans-serif"
+showSidebarBorder = false
+chartCategoricalColors = ["#0071E3", "#34C759", "#FF9F0A", "#8E8E93"]
 
 [server]
 headless = true

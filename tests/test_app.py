@@ -89,7 +89,11 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertEqual(sum(len(trace.x) for trace in type_premium_figure.data), 2)
         self.assertFalse(type_premium_figure.layout.showlegend)
         self.assertTrue(
-            all("B타입보다" in text for trace in type_premium_figure.data for text in trace.text)
+            all(
+                text.endswith("%") and "보다" not in text
+                for trace in type_premium_figure.data
+                for text in trace.text
+            )
         )
         self.assertTrue(
             all("건" not in text for trace in type_premium_figure.data for text in trace.text)
@@ -100,8 +104,10 @@ class DashboardRenderTest(unittest.TestCase):
 
         floor_premium_figure = _adjusted_premium_figure(premium_trades, "층 구간")
         self.assertEqual(sum(len(trace.x) for trace in floor_premium_figure.data), 1)
+        self.assertEqual(list(floor_premium_figure.data[0].y), ["저층"])
+        self.assertLessEqual(floor_premium_figure.layout.margin.r, 60)
         self.assertTrue(
-            all("고층보다" in text for trace in floor_premium_figure.data for text in trace.text)
+            all(trace.textposition == "inside" for trace in floor_premium_figure.data)
         )
 
     def test_prepare_trades_replaces_stale_floor_groups(self):
@@ -150,6 +156,12 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(len(app.get("plotly_chart")), 5)
         self.assertEqual(len(app.dataframe), 1)
+        self.assertEqual(
+            len(app.sidebar.select_slider),
+            0,
+            "기간 조절은 모바일에서 숨는 사이드바 안에 있으면 안 됩니다.",
+        )
+        self.assertEqual(app.select_slider[0].label, "거래 기간")
 
     def test_seed_data_renders_without_runtime_cache(self):
         project_root = Path(__file__).resolve().parents[1]
