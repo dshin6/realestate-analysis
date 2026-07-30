@@ -192,29 +192,37 @@ def build_price_index(
         )
 
     series = pd.DataFrame(rows)
-    latest_level = float(series.iloc[-1]["level"])
-    series["index"] = series["level"] / latest_level * 100.0
     series["is_sparse"] = series["trades"] < SPARSE_QUARTER_TRADES
+    stable_series = series.loc[~series["is_sparse"]]
+    reference_row = (
+        stable_series.iloc[-1]
+        if not stable_series.empty
+        else series.iloc[-1]
+    )
+    latest_level = float(reference_row["level"])
+    series["index"] = series["level"] / latest_level * 100.0
 
     index_by_quarter = series.set_index("quarter")["index"]
-    latest_period = pd.Period(str(series.iloc[-1]["quarter"]), freq="Q")
+    latest_quarter = str(reference_row["quarter"])
+    latest_period = pd.Period(latest_quarter, freq="Q")
     previous_value = index_by_quarter.get(str(latest_period - 1))
     year_ago_value = index_by_quarter.get(str(latest_period - 4))
+    latest_index = float(index_by_quarter[latest_quarter])
     quarterly_change = (
-        float(100.0 / previous_value - 1.0) * 100.0
+        float(latest_index / previous_value - 1.0) * 100.0
         if previous_value is not None
         else None
     )
     yearly_change = (
-        float(100.0 / year_ago_value - 1.0) * 100.0
+        float(latest_index / year_ago_value - 1.0) * 100.0
         if year_ago_value is not None
         else None
     )
 
     return PriceIndexResult(
         series=series[["quarter", "index", "trades", "is_sparse"]],
-        latest_quarter=str(series.iloc[-1]["quarter"]),
-        latest_index=100.0,
+        latest_quarter=latest_quarter,
+        latest_index=latest_index,
         quarterly_change_pct=quarterly_change,
         yearly_change_pct=yearly_change,
         model=model,

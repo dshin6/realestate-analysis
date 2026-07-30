@@ -63,6 +63,25 @@ class ValuationTest(unittest.TestCase):
         )
         self.assertFalse(result.series["is_sparse"].any())
 
+    def test_sparse_latest_quarter_is_not_used_as_reference(self):
+        trades = make_balanced_trades()
+        sparse_latest = trades.iloc[[0]].copy()
+        sparse_latest["deal_date"] = "2026-01-15"
+        sparse_latest["price_won"] = sparse_latest["price_won"] * 2
+        trades = pd.concat([trades, sparse_latest], ignore_index=True)
+
+        result = build_price_index(trades)
+
+        self.assertEqual(result.latest_quarter, "2025Q4")
+        stable_row = result.series.loc[
+            result.series["quarter"] == "2025Q4"
+        ].iloc[0]
+        sparse_row = result.series.loc[
+            result.series["quarter"] == "2026Q1"
+        ].iloc[0]
+        self.assertAlmostEqual(stable_row["index"], 100.0, places=6)
+        self.assertTrue(bool(sparse_row["is_sparse"]))
+
     def test_index_requires_thirty_valid_trades(self):
         result = build_price_index(make_balanced_trades().iloc[:29])
         self.assertIsNone(result)

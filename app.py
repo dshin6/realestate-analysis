@@ -629,7 +629,9 @@ def main() -> None:
     if price_index is None:
         st.info("실거래 가격지수를 계산하려면 유효 거래가 30건 이상 필요합니다.")
     else:
-        latest_index_row = price_index.series.iloc[-1]
+        latest_index_row = price_index.series.loc[
+            price_index.series["quarter"] == price_index.latest_quarter
+        ].iloc[-1]
         index_col1, index_col2, index_col3, index_col4 = st.columns(4)
         index_col1.metric("최신 지수", f"{price_index.latest_index:.1f}")
         index_col2.metric(
@@ -655,7 +657,8 @@ def main() -> None:
         _show_chart(_price_index_figure(price_index))
         st.caption(
             "타입·동·실제 층의 구성 차이를 보정한 분기별 가격 흐름입니다. "
-            "거래가 있는 최신 분기를 100으로 두며 미래 가격 예측값은 아닙니다."
+            "거래 3건 이상인 최신 안정 분기를 100으로 둡니다. "
+            "표본이 적은 이후 분기는 참고로만 표시하며 미래 가격 예측값은 아닙니다."
         )
 
     st.subheader("전체 실거래 가격")

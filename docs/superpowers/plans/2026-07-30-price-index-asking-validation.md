@@ -12,9 +12,9 @@
 
 - Use only the existing dependencies in `requirements.txt`; do not add scikit-learn or statsmodels.
 - Use quarterly time effects because the dataset averages only a few trades per month.
-- Normalize the most recent quarter with transactions to index `100.0`.
+- Normalize the most recent non-sparse quarter (at least 3 trades) to index `100.0`.
 - Require at least 30 valid trades to fit a price index.
-- Mark quarters with fewer than 3 trades as sparse.
+- Keep quarters with fewer than 3 trades in the model and chart, but never use them as the valuation reference quarter.
 - Apply building-coefficient ridge strength `5.0`; do not penalize quarter, type, or floor terms.
 - Use actual-floor spline terms `floor`, `max(floor - 5, 0)`, and `max(floor - 15, 0)`.
 - Use same-building comparables only when at least 8 exist; otherwise expand to all same-type complex trades.
