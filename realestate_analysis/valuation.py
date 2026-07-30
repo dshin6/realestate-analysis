@@ -219,3 +219,295 @@ def build_price_index(
         yearly_change_pct=yearly_change,
         model=model,
     )
+
+
+MIN_COMPARABLES = 8
+HIGH_CONFIDENCE_COMPARABLES = 20
+MEDIUM_CONFIDENCE_COMPARABLES = 10
+MAX_COMPARABLES = 30
+RECENCY_HALF_LIFE_DAYS = 365.25 * 2
+MAX_INTERVAL_WIDTH_RATIO = 0.20
+
+
+@dataclass(frozen=True)
+class BacktestResult:
+    median_absolute_error_won: int
+    median_absolute_percentage_error_pct: float
+    interval_coverage_pct: float
+    cases: int
+
+
+@dataclass(frozen=True)
+class AskingPriceResult:
+    count: int
+    fair_price_won: int | None
+    low_price_won: int | None
+    high_price_won: int | None
+    asking_delta_pct: float | None
+    status: str
+    confidence: str
+    expanded_to_complex: bool
+    same_building_ratio: float
+    comparables: pd.DataFrame
+    backtest: BacktestResult | None
+
+
+def _empty_comparables() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "deal_date",
+            "building",
+            "floor",
+            "price_won",
+            "adjusted_price_won",
+            "weight",
+        ]
+    )
+
+
+def _weighted_quantile(
+    values: np.ndarray,
+    weights: np.ndarray,
+    quantile: float,
+) -> float:
+    order = np.argsort(values)
+    ordered_values = values[order]
+    ordered_weights = weights[order]
+    total_weight = float(ordered_weights.sum())
+    if total_weight <= 0:
+        return float(np.quantile(ordered_values, quantile))
+    positions = (
+        np.cumsum(ordered_weights) - ordered_weights * 0.5
+    ) / total_weight
+    return float(
+        np.interp(
+            quantile,
+            positions,
+            ordered_values,
+            left=ordered_values[0],
+            right=ordered_values[-1],
+        )
+    )
+
+
+def _confidence_label(
+    count: int,
+    same_building_ratio: float,
+    backtest: BacktestResult | None,
+) -> str:
+    if (
+        count >= HIGH_CONFIDENCE_COMPARABLES
+        and same_building_ratio >= 0.50
+        and backtest is not None
+        and backtest.median_absolute_percentage_error_pct <= 7.5
+    ):
+        return "높음"
+    if (
+        count >= MEDIUM_CONFIDENCE_COMPARABLES
+        and backtest is not None
+        and backtest.median_absolute_percentage_error_pct <= 12.5
+    ):
+        return "보통"
+    return "낮음"
+
+
+def _asking_status(
+    asking_price_won: int,
+    count: int,
+    fair_price_won: int,
+    low_price_won: int,
+    high_price_won: int,
+) -> str:
+    if (
+        count < MIN_COMPARABLES
+        or (high_price_won - low_price_won) / fair_price_won
+        > MAX_INTERVAL_WIDTH_RATIO
+    ):
+        return "판단 자료 부족"
+    if asking_price_won < low_price_won:
+        return "저평가 가능"
+    if asking_price_won <= high_price_won:
+        return "적정 범위"
+    if asking_price_won <= high_price_won * 1.05:
+        return "다소 높음"
+    return "높음"
+
+
+def evaluate_asking_price(
+    frame: pd.DataFrame,
+    plan_type: str,
+    building: str,
+    floor: int,
+    asking_price_won: int,
+    price_index: PriceIndexResult | None = None,
+    backtest: BacktestResult | None = None,
+) -> AskingPriceResult | None:
+    work = _clean_frame(frame)
+    index_result = price_index or build_price_index(work)
+    if index_result is None:
+        return None
+
+    candidates = work[work["plan_type"] == plan_type].copy()
+    same_building = candidates[candidates["building"] == building]
+    expanded_to_complex = len(same_building) < MIN_COMPARABLES
+    if not expanded_to_complex:
+        candidates = same_building.copy()
+    if candidates.empty:
+        return AskingPriceResult(
+            count=0,
+            fair_price_won=None,
+            low_price_won=None,
+            high_price_won=None,
+            asking_delta_pct=None,
+            status="판단 자료 부족",
+            confidence="낮음",
+            expanded_to_complex=expanded_to_complex,
+            same_building_ratio=0.0,
+            comparables=_empty_comparables(),
+            backtest=backtest,
+        )
+
+    model = index_result.model
+    target_log_price = model.predict_log_price(
+        index_result.latest_quarter,
+        plan_type,
+        building,
+        floor,
+    )
+    latest_date = work["deal_date"].max()
+    adjusted_prices = []
+    weights = []
+    for trade in candidates.itertuples(index=False):
+        source_log_price = model.predict_log_price(
+            str(trade.quarter),
+            str(trade.plan_type),
+            str(trade.building),
+            int(trade.floor),
+        )
+        adjustment = np.exp(
+            np.clip(target_log_price - source_log_price, -2.0, 2.0)
+        )
+        adjusted_prices.append(float(trade.price_won) * adjustment)
+        age_days = max((latest_date - trade.deal_date).days, 0)
+        weights.append(0.5 ** (age_days / RECENCY_HALF_LIFE_DAYS))
+
+    candidates["adjusted_price_won"] = adjusted_prices
+    candidates["weight"] = weights
+    candidates = (
+        candidates.sort_values(
+            ["weight", "deal_date"],
+            ascending=[False, False],
+        )
+        .head(MAX_COMPARABLES)
+        .copy()
+    )
+
+    values = candidates["adjusted_price_won"].to_numpy(dtype=float)
+    comparable_weights = candidates["weight"].to_numpy(dtype=float)
+    low_price_won = int(round(_weighted_quantile(values, comparable_weights, 0.20)))
+    fair_price_won = int(round(_weighted_quantile(values, comparable_weights, 0.50)))
+    high_price_won = int(round(_weighted_quantile(values, comparable_weights, 0.80)))
+    count = int(len(candidates))
+    same_building_ratio = float((candidates["building"] == building).mean())
+    status = _asking_status(
+        asking_price_won,
+        count,
+        fair_price_won,
+        low_price_won,
+        high_price_won,
+    )
+    confidence = _confidence_label(
+        count,
+        same_building_ratio,
+        backtest,
+    )
+    asking_delta_pct = (
+        float(asking_price_won / fair_price_won - 1.0) * 100.0
+        if fair_price_won
+        else None
+    )
+    comparable_columns = [
+        "deal_date",
+        "building",
+        "floor",
+        "price_won",
+        "adjusted_price_won",
+        "weight",
+    ]
+    return AskingPriceResult(
+        count=count,
+        fair_price_won=fair_price_won,
+        low_price_won=low_price_won,
+        high_price_won=high_price_won,
+        asking_delta_pct=asking_delta_pct,
+        status=status,
+        confidence=confidence,
+        expanded_to_complex=expanded_to_complex,
+        same_building_ratio=same_building_ratio,
+        comparables=candidates[comparable_columns].reset_index(drop=True),
+        backtest=backtest,
+    )
+
+
+def backtest_valuation(
+    frame: pd.DataFrame,
+    max_quarters: int = 8,
+) -> BacktestResult | None:
+    work = _clean_frame(frame)
+    eligible_quarters = []
+    for quarter in sorted(work["quarter"].unique()):
+        validation_period = pd.Period(quarter, freq="Q")
+        training = work[
+            work["deal_date"].dt.to_period("Q") < validation_period
+        ]
+        if len(training) >= MIN_INDEX_OBSERVATIONS:
+            eligible_quarters.append(quarter)
+    eligible_quarters = eligible_quarters[-max_quarters:]
+
+    absolute_errors: list[float] = []
+    percentage_errors: list[float] = []
+    covered: list[bool] = []
+    for quarter in eligible_quarters:
+        validation_period = pd.Period(quarter, freq="Q")
+        training = work[
+            work["deal_date"].dt.to_period("Q") < validation_period
+        ]
+        validation = work[work["quarter"] == quarter]
+        price_index = build_price_index(training)
+        if price_index is None:
+            continue
+        for trade in validation.itertuples(index=False):
+            result = evaluate_asking_price(
+                training,
+                plan_type=str(trade.plan_type),
+                building=str(trade.building),
+                floor=int(trade.floor),
+                asking_price_won=int(trade.price_won),
+                price_index=price_index,
+            )
+            if (
+                result is None
+                or result.fair_price_won is None
+                or result.low_price_won is None
+                or result.high_price_won is None
+            ):
+                continue
+            error = abs(float(trade.price_won) - result.fair_price_won)
+            absolute_errors.append(error)
+            percentage_errors.append(error / float(trade.price_won) * 100.0)
+            covered.append(
+                result.low_price_won
+                <= float(trade.price_won)
+                <= result.high_price_won
+            )
+
+    if not absolute_errors:
+        return None
+    return BacktestResult(
+        median_absolute_error_won=int(round(float(np.median(absolute_errors)))),
+        median_absolute_percentage_error_pct=float(
+            np.median(percentage_errors)
+        ),
+        interval_coverage_pct=float(np.mean(covered) * 100.0),
+        cases=len(absolute_errors),
+    )

@@ -2,7 +2,12 @@ import unittest
 
 import pandas as pd
 
-from realestate_analysis.valuation import build_price_index
+from realestate_analysis.valuation import (
+    BacktestResult,
+    backtest_valuation,
+    build_price_index,
+    evaluate_asking_price,
+)
 
 
 def make_balanced_trades() -> pd.DataFrame:
@@ -36,6 +41,14 @@ def make_balanced_trades() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def make_valuation_trades() -> pd.DataFrame:
+    frame = make_balanced_trades()
+    extra = frame.copy()
+    extra["deal_date"] = "2026-01-15"
+    extra["price_won"] = extra["price_won"] * 1.10 / 1.20
+    return pd.concat([frame, extra], ignore_index=True)
+
+
 class ValuationTest(unittest.TestCase):
     def test_quarterly_index_controls_composition_and_normalizes_latest(self):
         result = build_price_index(make_balanced_trades())
@@ -53,6 +66,96 @@ class ValuationTest(unittest.TestCase):
     def test_index_requires_thirty_valid_trades(self):
         result = build_price_index(make_balanced_trades().iloc[:29])
         self.assertIsNone(result)
+
+    def test_asking_uses_same_building_and_actual_floor_adjustment(self):
+        trades = make_valuation_trades()
+        result = evaluate_asking_price(
+            trades,
+            plan_type="A",
+            building="231",
+            floor=18,
+            asking_price_won=820_000_000,
+            backtest=BacktestResult(
+                median_absolute_error_won=25_000_000,
+                median_absolute_percentage_error_pct=4.0,
+                interval_coverage_pct=70.0,
+                cases=20,
+            ),
+        )
+
+        self.assertIsNotNone(result)
+        self.assertFalse(result.expanded_to_complex)
+        self.assertGreaterEqual(result.count, 8)
+        self.assertEqual(result.confidence, "높음")
+        self.assertIn(
+            result.status,
+            {"저평가 가능", "적정 범위", "다소 높음", "높음"},
+        )
+        self.assertTrue(
+            {"adjusted_price_won", "weight"}.issubset(
+                result.comparables.columns
+            )
+        )
+
+    def test_asking_expands_to_complex_when_building_sample_is_small(self):
+        trades = make_valuation_trades()
+        trades.loc[trades.index[2:], "building"] = "232"
+
+        result = evaluate_asking_price(
+            trades,
+            plan_type="A",
+            building="231",
+            floor=18,
+            asking_price_won=820_000_000,
+        )
+
+        self.assertIsNotNone(result)
+        self.assertTrue(result.expanded_to_complex)
+
+    def test_asking_returns_insufficient_when_interval_is_too_wide(self):
+        trades = make_valuation_trades()
+        trades.loc[trades.index % 16 < 8, "price_won"] *= 0.60
+        trades.loc[trades.index % 16 >= 8, "price_won"] *= 1.40
+
+        result = evaluate_asking_price(
+            trades,
+            plan_type="A",
+            building="231",
+            floor=18,
+            asking_price_won=820_000_000,
+        )
+
+        self.assertEqual(result.status, "판단 자료 부족")
+
+    def test_asking_returns_insufficient_with_fewer_than_eight_comparables(self):
+        trades = make_valuation_trades()
+        trades["plan_type"] = "B"
+        trades.loc[trades.index[:7], "plan_type"] = "A"
+
+        result = evaluate_asking_price(
+            trades,
+            plan_type="A",
+            building="231",
+            floor=18,
+            asking_price_won=820_000_000,
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.count, 7)
+        self.assertEqual(result.status, "판단 자료 부족")
+
+    def test_backtest_reports_time_ordered_error_metrics(self):
+        result = backtest_valuation(make_valuation_trades(), max_quarters=2)
+
+        self.assertIsNotNone(result)
+        self.assertGreater(result.cases, 0)
+        self.assertGreaterEqual(result.median_absolute_error_won, 0)
+        self.assertGreaterEqual(
+            result.median_absolute_percentage_error_pct,
+            0.0,
+        )
+        self.assertGreaterEqual(result.interval_coverage_pct, 0.0)
+        self.assertLessEqual(result.interval_coverage_pct, 100.0)
 
 
 if __name__ == "__main__":
