@@ -19,6 +19,13 @@ from realestate_analysis.analysis import (
 )
 from realestate_analysis.api import PublicDataApiError, current_deal_month, load_trades
 from realestate_analysis.config import TARGET_COMPLEX
+from realestate_analysis.valuation import (
+    BacktestResult,
+    PriceIndexResult,
+    backtest_valuation,
+    build_price_index,
+    evaluate_asking_price,
+)
 
 
 CACHE_PATH = Path("data/cache/trades.json")
@@ -386,6 +393,43 @@ def _floor_price_index_figure(frame: pd.DataFrame) -> go.Figure:
     return _polish_chart(figure)
 
 
+
+def _price_index_figure(result: PriceIndexResult) -> go.Figure:
+    chart_data = result.series.copy()
+    chart_data["표본 상태"] = chart_data["is_sparse"].map(
+        {True: "표본 적음", False: "일반"}
+    )
+    figure = px.line(
+        chart_data,
+        x="quarter",
+        y="index",
+        markers=True,
+        labels={"quarter": "거래 분기", "index": "실거래 가격지수"},
+        custom_data=["trades", "표본 상태"],
+    )
+    figure.update_traces(
+        line={"color": "#0071E3", "width": 3},
+        marker={"size": 7, "color": "#0071E3"},
+        hovertemplate=(
+            "분기: %{x}<br>"
+            "가격지수: %{y:.1f}<br>"
+            "거래: %{customdata[0]}건<br>"
+            "표본: %{customdata[1]}<extra></extra>"
+        ),
+    )
+    figure.add_hline(
+        y=100,
+        line_dash="dot",
+        line_color="rgba(29,29,31,0.35)",
+    )
+    figure.update_layout(
+        xaxis={"title": "거래 분기"},
+        yaxis={"title": "실거래 가격지수"},
+        showlegend=False,
+    )
+    return _polish_chart(figure, height=380)
+
+
 def _adjusted_premium_figure(
     frame: pd.DataFrame,
     factor: str,
@@ -455,6 +499,17 @@ def _adjusted_premium_figure(
         margin={"t": 24, "l": 12, "r": 48, "b": 55},
     )
     return figure
+
+
+
+@st.cache_data(show_spinner=False)
+def _valuation_context(
+    frame: pd.DataFrame,
+) -> tuple[PriceIndexResult | None, BacktestResult | None]:
+    price_index = build_price_index(frame)
+    if price_index is None:
+        return None, None
+    return price_index, backtest_valuation(frame)
 
 
 def _load_data(service_key: str, force_refresh: bool) -> tuple[pd.DataFrame, str]:
@@ -569,6 +624,40 @@ def main() -> None:
     col3.metric("최근 12개월 중앙값", _price_label(recent["price_won"].median()) if not recent.empty else "자료 없음")
     col4.metric("최근 12개월 거래", f"{len(recent):,}건")
 
+    price_index, valuation_backtest = _valuation_context(trades)
+    st.subheader("실거래 가격지수")
+    if price_index is None:
+        st.info("실거래 가격지수를 계산하려면 유효 거래가 30건 이상 필요합니다.")
+    else:
+        latest_index_row = price_index.series.iloc[-1]
+        index_col1, index_col2, index_col3, index_col4 = st.columns(4)
+        index_col1.metric("최신 지수", f"{price_index.latest_index:.1f}")
+        index_col2.metric(
+            "전 분기 대비",
+            (
+                f"{price_index.quarterly_change_pct:+.1f}%"
+                if price_index.quarterly_change_pct is not None
+                else "자료 없음"
+            ),
+        )
+        index_col3.metric(
+            "1년 전 대비",
+            (
+                f"{price_index.yearly_change_pct:+.1f}%"
+                if price_index.yearly_change_pct is not None
+                else "자료 없음"
+            ),
+        )
+        index_col4.metric(
+            f"{price_index.latest_quarter} 거래",
+            f"{int(latest_index_row['trades']):,}건",
+        )
+        _show_chart(_price_index_figure(price_index))
+        st.caption(
+            "타입·동·실제 층의 구성 차이를 보정한 분기별 가격 흐름입니다. "
+            "거래가 있는 최신 분기를 100으로 두며 미래 가격 예측값은 아닙니다."
+        )
+
     st.subheader("전체 실거래 가격")
     _show_chart(_trade_scatter_figure(filtered))
     st.caption("점 하나가 실거래 한 건입니다. 색상은 A/B/C 평면 타입을 구분합니다.")
@@ -638,30 +727,121 @@ def main() -> None:
     _show_chart(fig_building)
     st.caption("막대는 선택 기간의 동·타입별 평균가격입니다. 동 정보가 공개되지 않은 거래는 '미공개'로 묶입니다.")
 
-    with st.expander("검토 중인 매물 가격 비교", expanded=True):
-        form_left, form_mid, form_right = st.columns(3)
-        plan_type = form_left.selectbox("매물 타입", ["A", "B", "C"])
-        floor_group = form_mid.selectbox(
-            "매물 층 구간",
-            ["1층", "저층 (2층~5층)", "중층 (6층~15층)", "고층 (16층 이상)"],
+    with st.expander("검토 중인 매물 호가 분석", expanded=True):
+        form_type, form_building, form_floor, form_price = st.columns(4)
+        plan_type = form_type.selectbox("매물 타입", ["A", "B", "C"])
+        published_buildings = sorted(
+            value
+            for value in trades["building"].unique()
+            if value != "미공개"
         )
-        asking_eok = form_right.number_input("매물 가격(억원, 선택)", min_value=0.0, step=0.1, value=0.0)
-        estimate = estimate_fair_price(
-            trades,
-            plan_type,
-            floor_group,
-            int(asking_eok * 100_000_000) if asking_eok else None,
+        building_options = published_buildings or sorted(
+            trades["building"].unique()
         )
-        if estimate:
-            st.write(
-                f"최근 3년 유사 거래 **{estimate.count}건**의 중앙값은 "
-                f"**{_price_label(estimate.median_won)}**, 중간 50% 범위는 "
-                f"**{_price_label(estimate.q25_won)}~{_price_label(estimate.q75_won)}**입니다."
+        building = form_building.selectbox("매물 동", building_options)
+        max_floor = max(int(trades["floor"].max()), 1)
+        floor = form_floor.number_input(
+            "매물 실제 층",
+            min_value=1,
+            max_value=max_floor,
+            value=min(10, max_floor),
+            step=1,
+        )
+        asking_eok = form_price.number_input(
+            "매물 호가(억원)",
+            min_value=0.0,
+            step=0.1,
+            value=0.0,
+        )
+        st.text_input("매물 메모 또는 링크(선택)")
+
+        if not asking_eok:
+            st.caption(
+                "네이버부동산 또는 중개사에서 확인한 호가를 입력하면 "
+                "현재 가격 수준으로 환산한 실거래와 비교합니다."
             )
-            if estimate.asking_delta_pct is not None:
-                st.metric("매물가와 유사 거래 중앙값 차이", f"{estimate.asking_delta_pct:+.1f}%")
+        elif price_index is None:
+            st.info("유효 거래가 30건 미만이라 호가 타당성을 계산할 수 없습니다.")
         else:
-            st.info("최근 3년에 선택 조건과 같은 거래가 없습니다. 다른 층 구간이나 타입을 선택해 보세요.")
+            asking_result = evaluate_asking_price(
+                trades,
+                plan_type=plan_type,
+                building=building,
+                floor=int(floor),
+                asking_price_won=int(asking_eok * 100_000_000),
+                price_index=price_index,
+                backtest=valuation_backtest,
+            )
+            if asking_result is None or asking_result.fair_price_won is None:
+                st.info("같은 타입의 비교 가능한 실거래가 부족합니다.")
+            else:
+                result_col1, result_col2, result_col3, result_col4 = st.columns(4)
+                result_col1.metric(
+                    "통계적 적정가격",
+                    _price_label(asking_result.fair_price_won),
+                )
+                result_col2.metric(
+                    "예상 범위",
+                    (
+                        f"{_price_label(asking_result.low_price_won)}"
+                        f"~{_price_label(asking_result.high_price_won)}"
+                    ),
+                )
+                result_col3.metric(
+                    "호가 차이",
+                    f"{asking_result.asking_delta_pct:+.1f}%",
+                )
+                result_col4.metric(
+                    "판정 · 신뢰도",
+                    f"{asking_result.status} · {asking_result.confidence}",
+                )
+                if asking_result.status == "판단 자료 부족":
+                    st.warning(
+                        "비교 거래 수가 적거나 예상 범위가 넓어 가격 방향을 "
+                        "단정하지 않았습니다."
+                    )
+                elif asking_result.status == "적정 범위":
+                    st.success("입력한 호가는 통계적 예상 범위 안에 있습니다.")
+                else:
+                    st.info(
+                        f"입력한 호가는 통계적 적정가격보다 "
+                        f"{asking_result.asking_delta_pct:+.1f}% 차이 납니다."
+                    )
+                if asking_result.expanded_to_complex:
+                    st.caption(
+                        "같은 동 거래가 8건 미만이라 같은 타입의 단지 전체 "
+                        "거래로 비교 범위를 확장했습니다."
+                    )
+                if asking_result.backtest is not None:
+                    st.caption(
+                        f"시간순 백테스트 {asking_result.backtest.cases}건 · "
+                        f"중앙 오차율 "
+                        f"{asking_result.backtest.median_absolute_percentage_error_pct:.1f}% · "
+                        f"비교 실거래 {asking_result.count}건"
+                    )
+                if not asking_result.comparables.empty:
+                    comparable_table = asking_result.comparables.copy()
+                    comparable_table["deal_date"] = comparable_table[
+                        "deal_date"
+                    ].dt.strftime("%Y-%m-%d")
+                    comparable_table["실거래가"] = comparable_table[
+                        "price_won"
+                    ].map(_price_label)
+                    comparable_table["현재 환산가"] = comparable_table[
+                        "adjusted_price_won"
+                    ].map(_price_label)
+                    comparable_table = comparable_table.rename(
+                        columns={
+                            "deal_date": "계약일",
+                            "building": "동",
+                            "floor": "층",
+                        }
+                    )[["계약일", "동", "층", "실거래가", "현재 환산가"]]
+                    st.dataframe(
+                        comparable_table,
+                        width="stretch",
+                        hide_index=True,
+                    )
 
     st.subheader("개별 실거래")
     detail = filtered.sort_values("deal_date", ascending=False)[

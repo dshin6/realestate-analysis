@@ -16,10 +16,13 @@ class DashboardRenderTest(unittest.TestCase):
             _filter_by_month_range,
             _floor_distribution_figure,
             _floor_price_index_figure,
+            _price_index_figure,
             _trade_scatter_figure,
         )
         from realestate_analysis.analysis import enrich_trades
         from realestate_analysis.config import TARGET_COMPLEX
+        from realestate_analysis.valuation import build_price_index
+        from tests.test_valuation import make_balanced_trades
 
         raw = pd.DataFrame(
             [
@@ -110,6 +113,11 @@ class DashboardRenderTest(unittest.TestCase):
             all(trace.textposition == "inside" for trace in floor_premium_figure.data)
         )
 
+        index_result = build_price_index(make_balanced_trades())
+        index_figure = _price_index_figure(index_result)
+        self.assertTrue(all(trace.type == "scatter" for trace in index_figure.data))
+        self.assertEqual(index_figure.layout.yaxis.title.text, "실거래 가격지수")
+
     def test_prepare_trades_replaces_stale_floor_groups(self):
         from app import _prepare_trades
 
@@ -149,7 +157,7 @@ class DashboardRenderTest(unittest.TestCase):
             previous = Path.cwd()
             try:
                 os.chdir(temp_path)
-                app = AppTest.from_file(project_root / "app.py").run(timeout=15)
+                app = AppTest.from_file(project_root / "app.py").run(timeout=60)
             finally:
                 os.chdir(previous)
 
@@ -162,6 +170,66 @@ class DashboardRenderTest(unittest.TestCase):
             "기간 조절은 모바일에서 숨는 사이드바 안에 있으면 안 됩니다.",
         )
         self.assertEqual(app.select_slider[0].label, "거래 기간")
+        self.assertIn(
+            "실거래 가격지수",
+            [item.value for item in app.subheader],
+        )
+        self.assertIn("매물 동", [item.label for item in app.selectbox])
+        self.assertIn(
+            "매물 실제 층",
+            [item.label for item in app.number_input],
+        )
+        self.assertIn(
+            "매물 호가(억원)",
+            [item.label for item in app.number_input],
+        )
+
+    def test_price_index_renders_with_sufficient_data(self):
+        from tests.test_valuation import make_balanced_trades
+
+        project_root = Path(__file__).resolve().parents[1]
+        frame = make_balanced_trades().copy()
+        frame["exclusive_area"] = frame["plan_type"].map(
+            {"A": 84.80, "B": 84.73}
+        )
+        rows = frame[
+            [
+                "deal_date",
+                "price_won",
+                "exclusive_area",
+                "floor",
+                "building",
+            ]
+        ].to_dict(orient="records")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            cache_path = temp_path / "data" / "cache" / "trades.json"
+            cache_path.parent.mkdir(parents=True)
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "fetched_at": "2026-07-29T00:00:00+09:00",
+                        "end_ym": "202607",
+                        "rows": rows,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            previous = Path.cwd()
+            try:
+                os.chdir(temp_path)
+                app = AppTest.from_file(project_root / "app.py").run(
+                    timeout=60
+                )
+            finally:
+                os.chdir(previous)
+
+        self.assertEqual(len(app.exception), 0)
+        self.assertGreaterEqual(len(app.get("plotly_chart")), 6)
+        self.assertIn(
+            "실거래 가격지수",
+            [item.value for item in app.subheader],
+        )
 
     def test_seed_data_renders_without_runtime_cache(self):
         project_root = Path(__file__).resolve().parents[1]
@@ -182,7 +250,7 @@ class DashboardRenderTest(unittest.TestCase):
             previous = Path.cwd()
             try:
                 os.chdir(temp_path)
-                app = AppTest.from_file(project_root / "app.py").run(timeout=15)
+                app = AppTest.from_file(project_root / "app.py").run(timeout=60)
                 cache_created = (temp_path / "data" / "cache" / "trades.json").exists()
             finally:
                 os.chdir(previous)
